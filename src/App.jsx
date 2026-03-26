@@ -1,0 +1,1411 @@
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { supabase } from './lib/supabase'
+
+const PARTY_COLORS = {
+  '民進黨': { color: '#00833D' },
+  '國民黨': { color: '#004A97' },
+  '民眾黨': { color: '#008995' },
+  '時代力量': { color: '#FF9E15' },
+  '基進黨': { color: '#86391F' },
+  '社民黨': { color: '#DC143C' },
+  '親民黨': { color: '#FF6B35' },
+  '正神名黨': { color: '#8B0000' },
+  '新黨': { color: '#FFD700' },
+  '綠黨': { color: '#90EE90' },
+  '台灣團結聯盟': { color: '#FF69B4' },
+  '無黨團結聯盟': { color: '#DDA0DD' },
+  '台灣維新': { color: '#87CEEB' },
+  '勞動黨': { color: '#B22222' },
+  '其他政黨': { color: '#808080' },
+  '無特定政黨屬性': { color: '#4A4A4A' }
+};
+
+const COUNTIES = [
+  '台北市', '新北市', '桃園市', '台中市', '台南市', '高雄市',
+  '基隆市', '新竹市', '嘉義市',
+  '新竹縣', '苗栗縣', '彰化縣', '南投縣', '雲林縣', '嘉義縣',
+  '屏東縣', '宜蘭縣', '花蓮縣', '台東縣', '澎湖縣', '金門縣', '連江縣',
+  '不分區', '山地原住民', '平地原住民'
+];
+
+const RELATIONSHIP_TYPES = {
+  compete: { name: '競爭對立', color: '#FF0000', dash: '5,5' },
+  criticize: { name: '批評攻擊', color: '#FF6B6B', dash: '10,5' },
+  cooperate: { name: '合作支持', color: '#4ECDC4', dash: '0' },
+  support: { name: '聲援呼應', color: '#95E1D3', dash: '3,3' },
+  linked: { name: '議題連動', color: '#F38181', dash: '8,2' }
+};
+
+const formatAxisLabel = (num) => {
+  if (num === 0) return '0';
+  const abs = Math.abs(num);
+  if (abs >= 10000) {
+    const wan = num / 10000;
+    return (wan % 1 === 0 ? wan.toFixed(0) : wan.toFixed(1)) + ' 萬';
+  }
+  return Math.round(num).toLocaleString();
+};
+
+const formatNumber = (num) => {
+  if (num >= 100000) return Math.round(num / 10000) + '萬';
+  if (num >= 10000) return (num / 10000).toFixed(1) + '萬';
+  if (num >= 1000) return (num / 1000).toFixed(0) + '千';
+  if (num >= 100) return Math.round(num / 100) + '百';
+  return Math.round(num).toString();
+};
+
+const ChevronDown = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="6 9 12 15 18 9"></polyline>
+  </svg>
+);
+
+const Plus = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <line x1="12" y1="5" x2="12" y2="19"></line>
+    <line x1="5" y1="12" x2="19" y2="12"></line>
+  </svg>
+);
+
+// ── 共用的資料庫編輯表單元件 ──────────────────────────────
+const DBEditForm = ({ form, onChange, onSave, onCancel, bgClass = 'bg-yellow-50' }) => (
+  <div className={`border-b ${bgClass} p-2 space-y-1`}>
+    <div className="grid gap-1" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <input
+        autoFocus
+        type="text"
+        placeholder="姓名"
+        value={form.alias || ''}
+        onChange={(e) => onChange({ ...form, alias: e.target.value })}
+        className="px-1 py-0.5 border rounded text-xs"
+      />
+      <select
+        value={form.political_party_label || ''}
+        onChange={(e) => onChange({ ...form, political_party_label: e.target.value })}
+        className="px-1 py-0.5 border rounded text-xs"
+      >
+        <option value="">選擇政黨</option>
+        {Object.keys(PARTY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
+      </select>
+    </div>
+    <div className="grid gap-1" style={{ gridTemplateColumns: '1fr auto' }}>
+      <select
+        value={form.county || ''}
+        onChange={(e) => onChange({ ...form, county: e.target.value })}
+        className="px-1 py-0.5 border rounded text-xs"
+      >
+        <option value="">選擇縣市</option>
+        {COUNTIES.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+      <label className="flex items-center gap-1 text-xs whitespace-nowrap">
+        <input
+          type="checkbox"
+          checked={form.national_affairs || false}
+          onChange={(e) => onChange({ ...form, national_affairs: e.target.checked })}
+        />
+        全國性
+      </label>
+    </div>
+    <div className="flex gap-1">
+      <button onClick={onSave} className="flex-1 px-2 py-0.5 bg-teal-600 text-white rounded text-xs">
+        儲存
+      </button>
+      <button onClick={onCancel} className="flex-1 px-2 py-0.5 bg-gray-200 rounded text-xs">
+        取消
+      </button>
+    </div>
+  </div>
+);
+
+export default function App() {
+  // ── 政治人物列表（Supabase 共用資料庫）──────────────────
+  const [politicianDB, setPoliticianDB] = useState({});
+  const [dbLoading, setDbLoading] = useState(true);
+  const [dbSyncing, setDbSyncing] = useState(false);
+
+  // ── 圖表數據 ──────────────────────────────────────────
+  const [internalFiles, setInternalFiles] = useState([]);
+  const [externalFiles, setExternalFiles] = useState([]);
+  const internalFilesRef = useRef([]);
+  const externalFilesRef = useRef([]);
+  const [mergedData, setMergedData] = useState([]);
+  const [displayData, setDisplayData] = useState([]);
+
+  // ── UI 狀態 ───────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState('data');
+  const [selectedParties, setSelectedParties] = useState([]);
+  const [selectedCities, setSelectedCities] = useState([]);
+  const [searchName, setSearchName] = useState('');
+  const [rankFilter, setRankFilter] = useState({ start: '', end: '' });
+  const [selectedTag, setSelectedTag] = useState('');
+  const [tags, setTags] = useState({});
+  const [newTagName, setNewTagName] = useState('');
+
+  const [showNationalOnly, setShowNationalOnly] = useState(false);
+  const [showPartyDropdown, setShowPartyDropdown] = useState(false);
+  const [showCityDropdown, setShowCityDropdown] = useState(false);
+
+  const [showAddPolitician, setShowAddPolitician] = useState(false);
+  const [newPolitician, setNewPolitician] = useState({
+    alias: '', political_party_label: '', county: '',
+    bgw_spectrum: '', national_affairs: false, otherTags: ''
+  });
+
+  const [axisRange, setAxisRange] = useState({
+    xMin: '', xMax: '', yMin: '', yMax: '', autoAdjust: true
+  });
+
+  const [highlights, setHighlights] = useState({});
+  const [highlightSettings, setHighlightSettings] = useState({
+    person: '', color: '#FF0000', type: 'circle'
+  });
+  const [relationships, setRelationships] = useState([]);
+  const [newRelationship, setNewRelationship] = useState({
+    personA: '', personB: '', type: 'compete'
+  });
+
+  const [canvasSize, setCanvasSize] = useState('16:9');
+  const [title, setTitle] = useState('2026 整體政壇形勢');
+  const [subtitle, setSubtitle] = useState('');
+  const [bubbleSettings, setBubbleSettings] = useState({
+    minRadius: 6, maxRadius: 35, fontSize: 11
+  });
+
+  // ── Refs ──────────────────────────────────────────────
+  const svgRef = useRef(null);
+  const politicianFileRef = useRef(null);
+  const internalFileRef = useRef(null);
+  const externalFileRef = useRef(null);
+  const chartContainerRef = useRef(null);
+  const partyDropdownRef = useRef(null);
+  const cityDropdownRef = useRef(null);
+
+  // ── 縮放 & 平移 ───────────────────────────────────────
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const isPanning = useRef(false);
+  const panStart = useRef({ x: 0, y: 0 });
+  const panOrigin = useRef({ x: 0, y: 0 });
+  const fitZoomRef = useRef(1);
+  const hasFitRef = useRef(false);
+
+  // ── 政治人物列表編輯器 ────────────────────────────────
+  const [dbSearch, setDbSearch] = useState('');
+  const [editingAlias, setEditingAlias] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [showDBEditor, setShowDBEditor] = useState(false);
+  const [dbPage, setDbPage] = useState(0);
+  const DB_PAGE_SIZE = 15;
+
+  // ══════════════════════════════════════════════════════
+  // Supabase：初始載入 & 即時訂閱
+  // ══════════════════════════════════════════════════════
+  useEffect(() => {
+    // 初始載入全部資料
+    const loadAll = async () => {
+      setDbLoading(true);
+      const { data, error } = await supabase.from('politicians').select('*');
+      if (!error && data) {
+        const db = {};
+        data.forEach(row => {
+          db[row.alias] = {
+            political_party_label: row.political_party_label,
+            county: row.county,
+            bgw_spectrum: row.bgw_spectrum,
+            national_affairs: row.national_affairs
+          };
+        });
+        setPoliticianDB(db);
+      }
+      setDbLoading(false);
+    };
+    loadAll();
+
+    // 即時訂閱：其他使用者的變更
+    const channel = supabase
+      .channel('politicians-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'politicians' }, (payload) => {
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const row = payload.new;
+          setPoliticianDB(prev => ({
+            ...prev,
+            [row.alias]: {
+              political_party_label: row.political_party_label,
+              county: row.county,
+              bgw_spectrum: row.bgw_spectrum,
+              national_affairs: row.national_affairs
+            }
+          }));
+        } else if (payload.eventType === 'DELETE') {
+          const alias = payload.old.alias;
+          setPoliticianDB(prev => {
+            const next = { ...prev };
+            delete next[alias];
+            return next;
+          });
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // ── Supabase 寫入輔助函式 ─────────────────────────────
+  const upsertToDB = async (alias, info) => {
+    setDbSyncing(true);
+    await supabase.from('politicians').upsert({
+      alias,
+      political_party_label: info.political_party_label || '無特定政黨屬性',
+      county: info.county || '',
+      bgw_spectrum: info.bgw_spectrum || '',
+      national_affairs: info.national_affairs || false
+    }, { onConflict: 'alias' });
+    setDbSyncing(false);
+  };
+
+  const deleteFromSupabase = async (alias) => {
+    setDbSyncing(true);
+    await supabase.from('politicians').delete().eq('alias', alias);
+    setDbSyncing(false);
+  };
+
+  const bulkUpsertToDB = async (db) => {
+    setDbSyncing(true);
+    const rows = Object.entries(db).map(([alias, info]) => ({
+      alias,
+      political_party_label: info.political_party_label || '無特定政黨屬性',
+      county: info.county || '',
+      bgw_spectrum: info.bgw_spectrum || '',
+      national_affairs: info.national_affairs || false
+    }));
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await supabase.from('politicians').upsert(rows.slice(i, i + CHUNK), { onConflict: 'alias' });
+    }
+    setDbSyncing(false);
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 圖表維度
+  // ══════════════════════════════════════════════════════
+  const getCanvasDimensions = () => {
+    const sizes = {
+      '16:9': { width: 1920, height: 1080 },
+      'square': { width: 1080, height: 1080 },
+      'og': { width: 1200, height: 630 }
+    };
+    return sizes[canvasSize] || sizes['16:9'];
+  };
+
+  // ══════════════════════════════════════════════════════
+  // CSV 解析
+  // ══════════════════════════════════════════════════════
+  const parseCSVLine = (line) => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+        else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim()); current = '';
+      } else { current += ch; }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const readFileText = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      resolve(text);
+    };
+    reader.onerror = reject;
+    reader.readAsText(file, 'UTF-8');
+  });
+
+  // ══════════════════════════════════════════════════════
+  // 政治人物列表上傳（CSV → Supabase）
+  // ══════════════════════════════════════════════════════
+  const handlePoliticianListUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFileText(file);
+      const lines = text.split('\n').filter(line => line.trim());
+      const rawHeaders = parseCSVLine(lines[0]);
+      const headers = rawHeaders.map(h => h.toLowerCase().trim());
+
+      const aliasIdx = headers.findIndex(h => h === 'alias');
+      const partyIdx = headers.findIndex(h => h === 'political_party_label');
+      const countyIdx = headers.findIndex(h => h === 'county');
+      const bgwIdx = headers.findIndex(h => h === 'bgw_spectrum');
+      const nationalIdx = headers.findIndex(h => h === 'national_affairs');
+
+      if (aliasIdx === -1) {
+        alert(`找不到 alias 欄位\n偵測到的欄位：${rawHeaders.join(', ')}`);
+        return;
+      }
+
+      const db = {};
+      for (let i = 1; i < lines.length; i++) {
+        const values = parseCSVLine(lines[i]);
+        const alias = values[aliasIdx]?.trim();
+        if (alias) {
+          const nationalRaw = nationalIdx !== -1 ? values[nationalIdx]?.trim().toUpperCase() : '';
+          db[alias] = {
+            political_party_label: partyIdx !== -1 ? (values[partyIdx]?.trim() || '無特定政黨屬性') : '無特定政黨屬性',
+            county: countyIdx !== -1 ? (values[countyIdx]?.trim() || '') : '',
+            bgw_spectrum: bgwIdx !== -1 ? (values[bgwIdx]?.trim() || '') : '',
+            national_affairs: nationalRaw === 'TRUE' || nationalRaw === '1' || nationalRaw === 'YES'
+          };
+        }
+      }
+
+      setPoliticianDB(db);
+      setDbPage(0);
+      await bulkUpsertToDB(db);
+      alert(`載入 ${Object.keys(db).length} 位政治人物，並已同步至資料庫`);
+    } catch (error) {
+      alert('載入失敗: ' + error.message);
+    }
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 新增 / 更新單一政治人物（原有表單）
+  // ══════════════════════════════════════════════════════
+  const handleAddOrUpdatePolitician = async () => {
+    if (!newPolitician.alias) { alert('請輸入政治人物姓名'); return; }
+    const info = {
+      political_party_label: newPolitician.political_party_label || '無特定政黨屬性',
+      county: newPolitician.county,
+      bgw_spectrum: newPolitician.bgw_spectrum,
+      national_affairs: newPolitician.national_affairs,
+      otherTags: newPolitician.otherTags
+    };
+    setPoliticianDB(prev => ({ ...prev, [newPolitician.alias]: info }));
+    await upsertToDB(newPolitician.alias, info);
+    setNewPolitician({ alias: '', political_party_label: '', county: '', bgw_spectrum: '', national_affairs: false, otherTags: '' });
+    setShowAddPolitician(false);
+    alert(`已儲存 ${newPolitician.alias}`);
+  };
+
+  const searchPolitician = () => {
+    if (!newPolitician.alias) return;
+    const found = politicianDB[newPolitician.alias];
+    if (found) {
+      setNewPolitician({
+        alias: newPolitician.alias,
+        political_party_label: found.political_party_label || '',
+        county: found.county || '',
+        bgw_spectrum: found.bgw_spectrum || '',
+        national_affairs: found.national_affairs || false,
+        otherTags: found.otherTags || ''
+      });
+      alert('已找到此人物，可編輯後儲存');
+    } else {
+      alert('資料庫中找不到此人物，可以直接新增');
+    }
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 圖表數據處理
+  // ══════════════════════════════════════════════════════
+  const parseNumeric = (str) => {
+    if (!str) return 0;
+    const n = parseFloat(String(str).replace(/,/g, '').trim());
+    return isNaN(n) ? 0 : n;
+  };
+
+  const parseCSV = (text) => {
+    const lines = text.split('\n').filter(line => line.trim());
+    const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+    const aliasIdx = headers.findIndex(h => h === 'alias');
+    const postIdx = headers.findIndex(h => h === 'post_count' || h === 'post');
+    const engagementIdx = headers.findIndex(h => h === 'engagement_score' || h.includes('engagement'));
+    if (aliasIdx === -1) return [];
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVLine(lines[i]);
+      const alias = values[aliasIdx]?.trim();
+      if (alias) {
+        data.push({
+          name: alias,
+          post: postIdx !== -1 ? parseNumeric(values[postIdx]) : 0,
+          score: engagementIdx !== -1 ? parseNumeric(values[engagementIdx]) : 0
+        });
+      }
+    }
+    return data;
+  };
+
+  const handleFiles = async (event, type) => {
+    const files = Array.from(event.target.files);
+    const allData = [];
+    for (const file of files) {
+      try {
+        const text = await readFileText(file);
+        allData.push(...parseCSV(text));
+      } catch (error) {
+        alert(`錯誤: ${error.message}`); return;
+      }
+    }
+    const grouped = {};
+    allData.forEach(item => {
+      if (!grouped[item.name]) grouped[item.name] = { score: 0, post: 0 };
+      grouped[item.name].score += item.score;
+      grouped[item.name].post += item.post;
+    });
+    const result = Object.entries(grouped).map(([name, d]) => ({
+      name,
+      [type]: d.score,
+      [`${type}Post`]: d.post
+    }));
+    if (type === 'internal') {
+      internalFilesRef.current = result; setInternalFiles(result);
+      if (externalFilesRef.current.length > 0) mergeData(result, externalFilesRef.current);
+    } else {
+      externalFilesRef.current = result; setExternalFiles(result);
+      if (internalFilesRef.current.length > 0) mergeData(internalFilesRef.current, result);
+    }
+  };
+
+  const mergeData = async (internal, external) => {
+    const intMap = {};
+    internal.forEach(d => { intMap[d.name] = d; });
+    const extMap = {};
+    external.forEach(d => { extMap[d.name] = d; });
+
+    const allNames = new Set([...Object.keys(intMap), ...Object.keys(extMap)]);
+    const merged = [];
+    let id = 1;
+    const missingParty = [];
+
+    allNames.forEach(name => {
+      const intItem = intMap[name];
+      const extItem = extMap[name];
+      const info = politicianDB[name];
+      if (!info || !info.political_party_label) missingParty.push(name);
+
+      const intVal = intItem?.internal ?? 0;
+      const intPost = intItem?.internalPost ?? 0;
+      const extVal = extItem?.external ?? 0;
+      const externalOnly = !intItem;
+      const avgPostImpact = (!externalOnly && intPost > 0) ? (intVal / intPost) : 0;
+      const momentum = externalOnly ? extVal : Math.sqrt(intVal * intVal + extVal * extVal);
+      const nationalAffairs = info?.national_affairs === true;
+
+      merged.push({
+        id: id++, name, internal: intVal, external: extVal,
+        internalPost: intPost, avgPostImpact, externalOnly,
+        party: info?.political_party_label || '無特定政黨屬性',
+        county: info?.county || '',
+        bgw_spectrum: info?.bgw_spectrum || '',
+        national_affairs: nationalAffairs, momentum
+      });
+    });
+
+    merged.sort((a, b) => b.momentum - a.momentum);
+
+    const top30NeedUpdate = [];
+    const updatedDB = { ...politicianDB };
+    merged.forEach((item, idx) => {
+      if (idx < 30 && !item.national_affairs) {
+        top30NeedUpdate.push(item.name);
+        item.national_affairs = true;
+        updatedDB[item.name] = { ...(updatedDB[item.name] || {}), national_affairs: true };
+      }
+    });
+
+    if (top30NeedUpdate.length > 0) {
+      alert(`【自動更新】已將前30名的以下人物標記為全國性：\n${top30NeedUpdate.join(', ')}`);
+      setPoliticianDB(updatedDB);
+      // 同步到 Supabase
+      for (const name of top30NeedUpdate) {
+        await upsertToDB(name, updatedDB[name]);
+      }
+    }
+
+    if (missingParty.length > 0) {
+      alert(`【缺少政黨標籤】以下政治人物缺少政黨標籤：\n${missingParty.join(', ')}`);
+    }
+
+    setMergedData(merged);
+    setDisplayData(merged);
+    const externalOnlyCount = merged.filter(d => d.externalOnly).length;
+    alert(`合併完成！\n總計：${merged.length} 位\n全國性：${merged.filter(d => d.national_affairs).length} 位\n僅外部數據（僅標籤）：${externalOnlyCount} 位`);
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 篩選
+  // ══════════════════════════════════════════════════════
+  const applyFilters = useCallback(() => {
+    let base = showNationalOnly ? mergedData.filter(d => d.national_affairs) : [...mergedData];
+    if (rankFilter.start || rankFilter.end) {
+      const start = parseInt(rankFilter.start) || 1;
+      const end = parseInt(rankFilter.end) || base.length;
+      base = base.slice(start - 1, end);
+    }
+    let filtered = base;
+    if (selectedParties.length > 0) filtered = filtered.filter(d => selectedParties.includes(d.party));
+    if (selectedCities.length > 0) filtered = filtered.filter(d => selectedCities.some(city => d.county && d.county.includes(city)));
+    if (searchName) filtered = filtered.filter(d => d.name.includes(searchName));
+    if (selectedTag) {
+      const taggedNames = Object.entries(tags).filter(([_, t]) => t === selectedTag).map(([name]) => name);
+      filtered = filtered.filter(d => taggedNames.includes(d.name));
+    }
+    setDisplayData(filtered);
+  }, [mergedData, showNationalOnly, selectedParties, selectedCities, searchName, rankFilter, selectedTag, tags]);
+
+  useEffect(() => { applyFilters(); }, [applyFilters]);
+
+  const clearFilters = () => {
+    setShowNationalOnly(false); setSelectedParties([]); setSelectedCities([]);
+    setSearchName(''); setRankFilter({ start: '', end: '' }); setSelectedTag('');
+  };
+
+  const toggleParty = (party) => setSelectedParties(prev => prev.includes(party) ? prev.filter(p => p !== party) : [...prev, party]);
+  const toggleCity = (city) => setSelectedCities(prev => prev.includes(city) ? prev.filter(c => c !== city) : [...prev, city]);
+
+  // ══════════════════════════════════════════════════════
+  // 政治人物列表 DB 編輯器
+  // ══════════════════════════════════════════════════════
+  const dbEntries = useMemo(() => {
+    const entries = Object.entries(politicianDB);
+    if (!dbSearch.trim()) return entries;
+    return entries.filter(([alias]) => alias.includes(dbSearch.trim()));
+  }, [politicianDB, dbSearch]);
+
+  const dbTotalPages = Math.ceil(dbEntries.length / DB_PAGE_SIZE);
+  const dbPageEntries = dbEntries.slice(dbPage * DB_PAGE_SIZE, (dbPage + 1) * DB_PAGE_SIZE);
+
+  const startEditDB = (alias) => {
+    const info = politicianDB[alias];
+    setEditingAlias(alias);
+    setEditForm({
+      alias,
+      political_party_label: info?.political_party_label || '',
+      county: info?.county || '',
+      bgw_spectrum: info?.bgw_spectrum || '',
+      national_affairs: info?.national_affairs || false
+    });
+  };
+
+  const saveEditDB = async () => {
+    if (!editForm.alias) return;
+    const updatedDB = { ...politicianDB };
+    if (editForm.alias !== editingAlias) delete updatedDB[editingAlias];
+    const info = {
+      political_party_label: editForm.political_party_label || '無特定政黨屬性',
+      county: editForm.county || '',
+      bgw_spectrum: editForm.bgw_spectrum || '',
+      national_affairs: editForm.national_affairs || false
+    };
+    updatedDB[editForm.alias] = info;
+    setPoliticianDB(updatedDB);
+    // 如果 alias 改變了，刪除舊記錄並新增
+    if (editForm.alias !== editingAlias) {
+      await deleteFromSupabase(editingAlias);
+    }
+    await upsertToDB(editForm.alias, info);
+    setEditingAlias(null);
+    setEditForm({});
+  };
+
+  const cancelEditDB = () => { setEditingAlias(null); setEditForm({}); };
+
+  const deleteFromDB = async (alias) => {
+    if (!window.confirm(`確定要刪除「${alias}」嗎？`)) return;
+    const updatedDB = { ...politicianDB };
+    delete updatedDB[alias];
+    setPoliticianDB(updatedDB);
+    await deleteFromSupabase(alias);
+  };
+
+  const addNewToDBInline = () => {
+    setEditingAlias('__new__');
+    setEditForm({ alias: '', political_party_label: '', county: '', bgw_spectrum: '', national_affairs: false });
+  };
+
+  const saveNewToDBInline = async () => {
+    if (!editForm.alias) { alert('請輸入姓名'); return; }
+    const info = {
+      political_party_label: editForm.political_party_label || '無特定政黨屬性',
+      county: editForm.county || '',
+      bgw_spectrum: editForm.bgw_spectrum || '',
+      national_affairs: editForm.national_affairs || false
+    };
+    setPoliticianDB(prev => ({ ...prev, [editForm.alias]: info }));
+    await upsertToDB(editForm.alias, info);
+    setEditingAlias(null);
+    setEditForm({});
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 匯出
+  // ══════════════════════════════════════════════════════
+  const buildExportSVGString = () => {
+    if (!svgRef.current) return null;
+    const svgClone = svgRef.current.cloneNode(true);
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    svgClone.style.background = '#ffffff';
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.textContent = `text { font-family: 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', '微軟正黑體', sans-serif; }`;
+    defs.appendChild(style);
+    svgClone.insertBefore(defs, svgClone.firstChild);
+    return new XMLSerializer().serializeToString(svgClone);
+  };
+
+  const exportSVG = () => {
+    const svgData = buildExportSVGString();
+    if (!svgData) return;
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'political-formation.svg'; link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportPNG = () => {
+    const svgData = buildExportSVGString();
+    if (!svgData) return;
+    const { width: w, height: h } = getCanvasDimensions();
+    const canvas = document.createElement('canvas');
+    const scale = 2;
+    canvas.width = w * scale; canvas.height = h * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      const link = document.createElement('a');
+      link.download = 'political-formation.png';
+      link.href = canvas.toDataURL('image/png'); link.click();
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); alert('PNG 匯出失敗，請改用 SVG 匯出'); };
+    img.src = url;
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 下拉選單：點擊外部關閉
+  // ══════════════════════════════════════════════════════
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (partyDropdownRef.current && !partyDropdownRef.current.contains(e.target)) setShowPartyDropdown(false);
+      if (cityDropdownRef.current && !cityDropdownRef.current.contains(e.target)) setShowCityDropdown(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // ══════════════════════════════════════════════════════
+  // 縮放 & 平移
+  // ══════════════════════════════════════════════════════
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+    const d = getCanvasDimensions();
+    const calcFit = () => {
+      const fz = Math.min(el.clientWidth / d.width, el.clientHeight / d.height);
+      fitZoomRef.current = fz;
+      if (!hasFitRef.current) {
+        hasFitRef.current = true;
+        setZoom(fz);
+        setPan({ x: 0, y: 0 });
+      }
+    };
+    calcFit();
+    const ro = new ResizeObserver(calcFit);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasSize]);
+
+  // canvasSize 改變時重置 fit
+  useEffect(() => {
+    hasFitRef.current = false;
+  }, [canvasSize]);
+
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+    const handleWheel = (e) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const delta = -e.deltaY * 0.01;
+        setZoom(prev => Math.min(Math.max(prev + delta, 0.05), 5));
+      } else {
+        setPan(prev => ({ x: prev.x - e.deltaX, y: prev.y - e.deltaY }));
+      }
+    };
+    const handlePointerDown = (e) => {
+      if (e.button !== 0 && e.pointerType !== 'touch') return;
+      isPanning.current = true;
+      panStart.current = { x: e.clientX, y: e.clientY };
+      panOrigin.current = { x: pan.x, y: pan.y };
+      el.setPointerCapture(e.pointerId);
+    };
+    const handlePointerMove = (e) => {
+      if (!isPanning.current) return;
+      setPan({ x: panOrigin.current.x + (e.clientX - panStart.current.x), y: panOrigin.current.y + (e.clientY - panStart.current.y) });
+    };
+    const handlePointerUp = () => { isPanning.current = false; };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    el.addEventListener('pointerdown', handlePointerDown);
+    el.addEventListener('pointermove', handlePointerMove);
+    el.addEventListener('pointerup', handlePointerUp);
+    el.addEventListener('pointercancel', handlePointerUp);
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('pointerdown', handlePointerDown);
+      el.removeEventListener('pointermove', handlePointerMove);
+      el.removeEventListener('pointerup', handlePointerUp);
+      el.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [pan.x, pan.y]);
+
+  const handleZoomReset = () => { setZoom(fitZoomRef.current); setPan({ x: 0, y: 0 }); };
+  const isAtFit = Math.abs(zoom - fitZoomRef.current) < 0.005 && pan.x === 0 && pan.y === 0;
+
+  // ══════════════════════════════════════════════════════
+  // 圖表渲染
+  // ══════════════════════════════════════════════════════
+  const dims = getCanvasDimensions();
+  const partiesInChart = [...new Set(displayData.map(d => d.party))].sort();
+  const filterBase = useMemo(() => showNationalOnly ? mergedData.filter(d => d.national_affairs) : mergedData, [mergedData, showNationalOnly]);
+  const availableParties = [...new Set(filterBase.map(d => d.party))].sort();
+  const availableTags = [...new Set(Object.values(tags))];
+
+  const scaleValue = (value, min, max, pixelMin, pixelMax) => {
+    if (max === min) return (pixelMin + pixelMax) / 2;
+    return pixelMin + ((value - min) / (max - min)) * (pixelMax - pixelMin);
+  };
+
+  const renderChart = () => {
+    const legendRows = partiesInChart.length > 0 ? Math.ceil(partiesInChart.length / 8) : 0;
+    const legendHeight = legendRows > 0 ? 60 + legendRows * 20 : 60;
+    const margin = { top: legendHeight + 40, right: 120, bottom: 90, left: 130 };
+    const width = dims.width - margin.left - margin.right;
+    const height = dims.height - margin.top - margin.bottom;
+
+    if (displayData.length === 0) {
+      return (
+        <g transform={`translate(${margin.left},${margin.top})`}>
+          <text x={width / 2} y={height / 2} textAnchor="middle" fontSize="16" fill="#666">
+            請上傳數據
+          </text>
+        </g>
+      );
+    }
+
+    const externals = displayData.map(d => d.external);
+    const internals = displayData.filter(d => !d.externalOnly).map(d => d.internal);
+    let minX = axisRange.autoAdjust ? 0 : (parseFloat(axisRange.xMin) || 0);
+    let maxX = axisRange.autoAdjust ? (Math.max(...externals) || 1) : (parseFloat(axisRange.xMax) || 100000);
+    let minY = axisRange.autoAdjust ? 0 : (parseFloat(axisRange.yMin) || 0);
+    let maxY = axisRange.autoAdjust ? (Math.max(...(internals.length ? internals : [1])) || 1) : (parseFloat(axisRange.yMax) || 50000);
+    if (axisRange.autoAdjust) { maxX *= 1.05; maxY *= 1.05; }
+
+    const avgImpacts = displayData.filter(d => !d.externalOnly).map(d => d.avgPostImpact);
+    const maxAvgImpact = avgImpacts.length > 0 ? Math.max(...avgImpacts) : 1;
+
+    const positions = displayData.map(d => {
+      const x = scaleValue(d.external, minX, maxX, 0, width);
+      const y = d.externalOnly ? height : scaleValue(d.internal, minY, maxY, height, 0);
+      const size = d.externalOnly ? 0 : bubbleSettings.minRadius + (maxAvgImpact > 0 ? (d.avgPostImpact / maxAvgImpact) * (bubbleSettings.maxRadius - bubbleSettings.minRadius) : 0);
+      return { ...d, x, y, size };
+    });
+
+    const xTicks = [0, 0.25, 0.5, 0.75, 1].map(ratio => ({ pos: width * ratio, value: Math.round(minX + (maxX - minX) * ratio) }));
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(ratio => ({ pos: height * (1 - ratio), value: Math.round(minY + (maxY - minY) * ratio) }));
+
+    return (
+      <g transform={`translate(${margin.left},${margin.top})`}>
+        {/* 格線 */}
+        <g opacity="0.25">
+          {xTicks.map((tick, i) => (
+            <g key={`xtick-${i}`}>
+              <line x1={tick.pos} y1={0} x2={tick.pos} y2={height} stroke="#aaa" strokeWidth="1" />
+              <text x={tick.pos} y={height + 22} textAnchor="middle" fontSize="11" fill="#555">{formatAxisLabel(tick.value)}</text>
+            </g>
+          ))}
+          {yTicks.map((tick, i) => (
+            <g key={`ytick-${i}`}>
+              <line x1={0} y1={tick.pos} x2={width} y2={tick.pos} stroke="#aaa" strokeWidth="1" />
+              <text x={-10} y={tick.pos + 4} textAnchor="end" fontSize="11" fill="#555">{formatAxisLabel(tick.value)}</text>
+            </g>
+          ))}
+        </g>
+
+        {/* 座標軸 */}
+        <line x1={0} y1={height} x2={width} y2={height} stroke="#333" strokeWidth="2" />
+        <line x1={0} y1={0} x2={0} y2={height} stroke="#333" strokeWidth="2" />
+        <circle cx={0} cy={height} r="4" fill="#333" />
+        <text x={-8} y={height + 18} fontSize="11" fill="#333">(0,0)</text>
+
+        {/* 關係線 */}
+        {relationships.map((rel, idx) => {
+          const pA = positions.find(p => p.name === rel.personA);
+          const pB = positions.find(p => p.name === rel.personB);
+          if (!pA || !pB) return null;
+          const relType = RELATIONSHIP_TYPES[rel.type];
+          return (
+            <line key={idx} x1={pA.x} y1={pA.y} x2={pB.x} y2={pB.y}
+              stroke={relType.color} strokeWidth="2.5" strokeDasharray={relType.dash} opacity="0.8" />
+          );
+        })}
+
+        {/* 泡泡 & 標籤 */}
+        {positions.map(p => {
+          const partyInfo = PARTY_COLORS[p.party] || PARTY_COLORS['無特定政黨屬性'];
+          const highlight = highlights[p.name];
+          const isBold = searchName && p.name.includes(searchName);
+
+          if (p.externalOnly) {
+            return (
+              <g key={p.id}>
+                <polygon points={`${p.x},${p.y - 6} ${p.x - 4},${p.y + 1} ${p.x + 4},${p.y + 1}`} fill={partyInfo.color} opacity="0.7" />
+                <text x={p.x} y={p.y - 10} fontSize={bubbleSettings.fontSize} fill={partyInfo.color}
+                  textAnchor="middle" fontWeight={isBold ? 'bold' : 'normal'} fontStyle="italic" opacity="0.85">
+                  {p.name}
+                </text>
+              </g>
+            );
+          }
+
+          return (
+            <g key={p.id}>
+              {highlight?.type === 'glow' && (
+                <circle cx={p.x} cy={p.y} r={p.size + 6} fill="none" stroke={highlight.color} strokeWidth="3" opacity="0.55" />
+              )}
+              <circle cx={p.x} cy={p.y} r={p.size} fill={partyInfo.color}
+                stroke={highlight?.type === 'circle' ? highlight.color : 'none'}
+                strokeWidth={highlight?.type === 'circle' ? 3 : 0} opacity="0.82" />
+              {highlight?.type === 'square' && (
+                <rect x={p.x - p.size - 4} y={p.y - p.size - 4}
+                  width={(p.size + 4) * 2} height={(p.size + 4) * 2}
+                  fill="none" stroke={highlight.color} strokeWidth="2.5" />
+              )}
+              <text x={p.x} y={p.y - p.size - 6} fontSize={bubbleSettings.fontSize}
+                fill={partyInfo.color} textAnchor="middle" fontWeight={isBold ? 'bold' : 'normal'}>
+                {p.name}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* 軸標籤 */}
+        <text x={width / 2} y={height + 58} fontSize="13" textAnchor="middle" fill="#444">
+          外部影響力（外部 engagement_score）
+        </text>
+        <text x={0} y={0} fontSize="13" textAnchor="middle" fill="#444"
+          transform={`translate(${-margin.left + 22}, ${height / 2}) rotate(-90)`}>
+          內部影響力（內部 engagement_score）
+        </text>
+      </g>
+    );
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 主渲染
+  // ══════════════════════════════════════════════════════
+  return (
+    <div className="w-full h-screen bg-gray-50 flex">
+
+      {/* ── 左側面板 ── */}
+      <div className="w-80 bg-white border-r overflow-y-auto flex-shrink-0">
+        <div className="p-3 border-b">
+          <h1 className="font-bold text-lg">政壇形勢分析系統</h1>
+          <p className="text-xs text-gray-500 flex items-center gap-1">
+            PEARSON Data · v2.0
+            {dbLoading && <span className="text-orange-500">⏳ 載入中...</span>}
+            {!dbLoading && dbSyncing && <span className="text-blue-500">🔄 同步中...</span>}
+            {!dbLoading && !dbSyncing && <span className="text-green-600">✓ 已連線</span>}
+          </p>
+        </div>
+
+        <div className="flex border-b">
+          {[
+            { key: 'data', icon: '📥', label: '匯入' },
+            { key: 'filter', icon: '🔍', label: '篩選' },
+            { key: 'annotate', icon: '🏷️', label: '標註' },
+            { key: 'settings', icon: '⚙️', label: '設定' }
+          ].map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 p-2 text-xs ${activeTab === tab.key ? 'border-b-2 border-teal-600 bg-teal-50' : ''}`}>
+              <div>{tab.icon}</div>
+              <div>{tab.label}</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="p-3">
+
+          {/* ── 匯入 Tab ── */}
+          {activeTab === 'data' && (
+            <div className="space-y-3">
+              <div>
+                <h3 className="font-bold text-sm mb-2">匯入數據</h3>
+                <div className="space-y-3">
+
+                  {/* 政治人物列表 */}
+                  <div className="p-2 bg-gray-50 rounded">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-medium">政治人物列表 (CSV)</span>
+                      {Object.keys(politicianDB).length > 0 && (
+                        <button onClick={() => { setPoliticianDB({}); if (politicianFileRef.current) politicianFileRef.current.value = ''; }}
+                          className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded hover:bg-red-200">
+                          清除（本地）
+                        </button>
+                      )}
+                    </div>
+                    <input type="file" accept=".csv" ref={politicianFileRef} onChange={handlePoliticianListUpload} className="text-xs w-full" />
+                    {Object.keys(politicianDB).length > 0 && (
+                      <div className="text-xs text-green-600 mt-1">✓ 已載入 {Object.keys(politicianDB).length} 人（含資料庫資料）</div>
+                    )}
+                    {dbLoading && (
+                      <div className="text-xs text-orange-500 mt-1">⏳ 正在從資料庫載入...</div>
+                    )}
+                  </div>
+
+                  {/* 內部數據 */}
+                  <div className="p-2 bg-gray-50 rounded">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-medium">內部數據 (可多選)</span>
+                      {internalFiles.length > 0 && (
+                        <button onClick={() => { internalFilesRef.current = []; setInternalFiles([]); setMergedData([]); setDisplayData([]); if (internalFileRef.current) internalFileRef.current.value = ''; }}
+                          className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded hover:bg-red-200">清除</button>
+                      )}
+                    </div>
+                    <input type="file" accept=".csv" multiple ref={internalFileRef} onChange={(e) => handleFiles(e, 'internal')} className="text-xs w-full" />
+                    {internalFiles.length > 0 && <div className="text-xs text-green-600 mt-1">✓ 已載入 {internalFiles.length} 人</div>}
+                  </div>
+
+                  {/* 外部數據 */}
+                  <div className="p-2 bg-gray-50 rounded">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-medium">外部數據 (可多選)</span>
+                      {externalFiles.length > 0 && (
+                        <button onClick={() => { externalFilesRef.current = []; setExternalFiles([]); setMergedData([]); setDisplayData([]); if (externalFileRef.current) externalFileRef.current.value = ''; }}
+                          className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded hover:bg-red-200">清除</button>
+                      )}
+                    </div>
+                    <input type="file" accept=".csv" multiple ref={externalFileRef} onChange={(e) => handleFiles(e, 'external')} className="text-xs w-full" />
+                    {externalFiles.length > 0 && <div className="text-xs text-green-600 mt-1">✓ 已載入 {externalFiles.length} 人</div>}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 政治人物列表編輯器 ── */}
+              <div className="border-t pt-3">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-bold text-sm">
+                    政治人物列表
+                    <span className="ml-1 text-gray-400 font-normal text-xs">({Object.keys(politicianDB).length} 人)</span>
+                  </h3>
+                  <button
+                    onClick={() => { setShowDBEditor(v => !v); setDbPage(0); }}
+                    className={`text-xs px-2 py-0.5 rounded ${showDBEditor ? 'bg-teal-600 text-white' : 'bg-teal-100 text-teal-700 hover:bg-teal-200'}`}
+                  >
+                    {showDBEditor ? '收起' : '展開編輯'}
+                  </button>
+                </div>
+
+                {showDBEditor && (
+                  <div className="space-y-2">
+                    <input type="text" value={dbSearch}
+                      onChange={(e) => { setDbSearch(e.target.value); setDbPage(0); }}
+                      placeholder="搜尋姓名..."
+                      className="w-full px-2 py-1 border rounded text-xs" />
+
+                    <div className="border rounded overflow-hidden">
+                      <div className="grid text-xs font-medium bg-gray-100 border-b px-2 py-1"
+                        style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}>
+                        <span>姓名</span><span>政黨</span><span>縣市</span><span></span>
+                      </div>
+
+                      {/* 新增中的列 */}
+                      {editingAlias === '__new__' && (
+                        <DBEditForm
+                          form={editForm}
+                          onChange={setEditForm}
+                          onSave={saveNewToDBInline}
+                          onCancel={cancelEditDB}
+                          bgClass="bg-teal-50"
+                        />
+                      )}
+
+                      {/* 資料列 */}
+                      <div className="max-h-64 overflow-y-auto">
+                        {dbPageEntries.map(([alias, info]) => (
+                          <div key={alias}>
+                            {editingAlias === alias ? (
+                              <DBEditForm
+                                form={editForm}
+                                onChange={setEditForm}
+                                onSave={saveEditDB}
+                                onCancel={cancelEditDB}
+                                bgClass="bg-yellow-50"
+                              />
+                            ) : (
+                              <div className="grid items-center px-2 py-1 border-b hover:bg-gray-50 text-xs"
+                                style={{ gridTemplateColumns: '1fr 1fr 1fr auto' }}>
+                                <span className="truncate font-medium" title={alias}>{alias}</span>
+                                <span className="truncate" style={{ color: (PARTY_COLORS[info?.political_party_label] || PARTY_COLORS['無特定政黨屬性']).color }}>
+                                  {info?.political_party_label || '—'}
+                                </span>
+                                <span className="truncate text-gray-500">{info?.county || '—'}</span>
+                                <div className="flex gap-1 ml-1">
+                                  <button onClick={() => startEditDB(alias)} className="px-1 py-0.5 bg-blue-100 text-blue-600 rounded text-xs hover:bg-blue-200" title="編輯">✏️</button>
+                                  <button onClick={() => deleteFromDB(alias)} className="px-1 py-0.5 bg-red-100 text-red-600 rounded text-xs hover:bg-red-200" title="刪除">🗑️</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {dbPageEntries.length === 0 && (
+                          <div className="text-center text-gray-400 text-xs py-3">
+                            {dbSearch ? '找不到符合的人物' : '列表為空'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 分頁 */}
+                    {dbTotalPages > 1 && (
+                      <div className="flex justify-between items-center text-xs text-gray-500">
+                        <button disabled={dbPage === 0} onClick={() => setDbPage(p => p - 1)} className="px-2 py-0.5 bg-gray-100 rounded disabled:opacity-40">‹ 上一頁</button>
+                        <span>{dbPage + 1} / {dbTotalPages}</span>
+                        <button disabled={dbPage >= dbTotalPages - 1} onClick={() => setDbPage(p => p + 1)} className="px-2 py-0.5 bg-gray-100 rounded disabled:opacity-40">下一頁 ›</button>
+                      </div>
+                    )}
+
+                    {/* 新增按鈕 */}
+                    {editingAlias !== '__new__' && (
+                      <button onClick={addNewToDBInline}
+                        className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-teal-50 text-teal-700 border border-teal-300 rounded text-xs hover:bg-teal-100">
+                        <Plus /> 新增人物
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── 加入新政治人物（快速表單）── */}
+              <div className="border-t pt-3">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-bold text-sm">加入新政治人物</h3>
+                  <button onClick={() => setShowAddPolitician(!showAddPolitician)} className="p-1 bg-teal-600 text-white rounded"><Plus /></button>
+                </div>
+                {showAddPolitician && (
+                  <div className="space-y-2 p-2 bg-gray-50 rounded">
+                    <div className="flex gap-2">
+                      <input type="text" placeholder="姓名" value={newPolitician.alias}
+                        onChange={(e) => setNewPolitician({ ...newPolitician, alias: e.target.value })}
+                        className="flex-1 px-2 py-1 border rounded text-xs" />
+                      <button onClick={searchPolitician} className="px-2 py-1 bg-blue-500 text-white rounded text-xs">搜尋</button>
+                    </div>
+                    <select value={newPolitician.political_party_label}
+                      onChange={(e) => setNewPolitician({ ...newPolitician, political_party_label: e.target.value })}
+                      className="w-full px-2 py-1 border rounded text-xs">
+                      <option value="">選擇政黨</option>
+                      {Object.keys(PARTY_COLORS).map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <select value={newPolitician.county}
+                      onChange={(e) => setNewPolitician({ ...newPolitician, county: e.target.value })}
+                      className="w-full px-2 py-1 border rounded text-xs">
+                      <option value="">選擇縣市</option>
+                      {COUNTIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={newPolitician.national_affairs}
+                        onChange={(e) => setNewPolitician({ ...newPolitician, national_affairs: e.target.checked })} />
+                      <span className="text-xs">全國性議題</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <button onClick={handleAddOrUpdatePolitician} className="flex-1 px-2 py-1 bg-teal-600 text-white rounded text-xs">儲存</button>
+                      <button onClick={() => setShowAddPolitician(false)} className="flex-1 px-2 py-1 bg-gray-300 rounded text-xs">取消</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── 篩選 Tab ── */}
+          {activeTab === 'filter' && (
+            <div className="space-y-4">
+              {/* 全國性切換 */}
+              <div className="p-2 bg-teal-50 border border-teal-200 rounded">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <div onClick={() => setShowNationalOnly(v => !v)}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${showNationalOnly ? 'bg-teal-600' : 'bg-gray-300'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showNationalOnly ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-teal-800">顯示全國性人物</div>
+                    <div className="text-xs text-teal-600">
+                      {showNationalOnly ? `共 ${mergedData.filter(d => d.national_affairs).length} 人` : `全部 ${mergedData.length} 人`}
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {/* 政黨篩選 */}
+              <div className="relative" ref={partyDropdownRef}>
+                <h3 className="font-bold text-sm mb-2">政黨篩選</h3>
+                <button onClick={() => setShowPartyDropdown(v => !v)}
+                  className="w-full flex justify-between items-center px-3 py-2 border rounded text-sm bg-white">
+                  <span className="text-xs">{selectedParties.length > 0 ? `已選 ${selectedParties.length} 個政黨` : '選擇政黨'}</span>
+                  <ChevronDown />
+                </button>
+                {showPartyDropdown && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border rounded shadow-lg max-h-60 overflow-y-auto">
+                    {availableParties.map(party => {
+                      const count = filterBase.filter(d => d.party === party).length;
+                      const dotColor = (PARTY_COLORS[party] || PARTY_COLORS['無特定政黨屬性']).color;
+                      return (
+                        <label key={party} className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-xs">
+                          <input type="checkbox" checked={selectedParties.includes(party)} onChange={() => toggleParty(party)} className="mr-2" />
+                          <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: dotColor, marginRight: 4, flexShrink: 0 }} />
+                          <span>{party} ({count})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 縣市篩選 */}
+              <div className="relative" ref={cityDropdownRef}>
+                <h3 className="font-bold text-sm mb-2">縣市篩選</h3>
+                <button onClick={() => setShowCityDropdown(v => !v)}
+                  className="w-full flex justify-between items-center px-3 py-2 border rounded text-sm bg-white">
+                  <span className="text-xs">{selectedCities.length > 0 ? `已選 ${selectedCities.length} 個縣市` : '選擇縣市'}</span>
+                  <ChevronDown />
+                </button>
+                {showCityDropdown && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border rounded shadow-lg max-h-60 overflow-y-auto">
+                    {COUNTIES.map(county => {
+                      const count = filterBase.filter(d => d.county && d.county.includes(county)).length;
+                      return (
+                        <label key={county} className="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer text-xs">
+                          <input type="checkbox" checked={selectedCities.includes(county)} onChange={() => toggleCity(county)} className="mr-2" />
+                          <span>{county} ({count})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 姓名搜尋 */}
+              <div>
+                <h3 className="font-bold text-sm mb-2">姓名搜尋</h3>
+                <input type="text" value={searchName} onChange={(e) => setSearchName(e.target.value)}
+                  placeholder="輸入姓名關鍵字..." className="w-full px-2 py-1 border rounded text-xs" />
+              </div>
+
+              {/* 排名篩選 */}
+              <div>
+                <h3 className="font-bold text-sm mb-2">排名篩選</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="number" placeholder="開始排名" value={rankFilter.start}
+                    onChange={(e) => setRankFilter({ ...rankFilter, start: e.target.value })} className="px-2 py-1 border rounded text-xs" />
+                  <input type="number" placeholder="結束排名" value={rankFilter.end}
+                    onChange={(e) => setRankFilter({ ...rankFilter, end: e.target.value })} className="px-2 py-1 border rounded text-xs" />
+                </div>
+              </div>
+
+              <div className="border-t pt-3">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-bold">符合條件: <span className="text-teal-600">{displayData.length}</span> 人</span>
+                  <button onClick={clearFilters} className="px-3 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">清除篩選</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── 標註 Tab ── */}
+          {activeTab === 'annotate' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-bold text-sm mb-2">🎯 人物標註</h3>
+                <div className="space-y-2">
+                  <select value={highlightSettings.person}
+                    onChange={(e) => setHighlightSettings({ ...highlightSettings, person: e.target.value })}
+                    className="w-full px-2 py-1 border rounded text-xs">
+                    <option value="">選擇人物</option>
+                    {displayData.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                  <div className="flex gap-2">
+                    <input type="color" value={highlightSettings.color}
+                      onChange={(e) => setHighlightSettings({ ...highlightSettings, color: e.target.value })}
+                      className="w-12 h-8 border rounded" />
+                    <select value={highlightSettings.type}
+                      onChange={(e) => setHighlightSettings({ ...highlightSettings, type: e.target.value })}
+                      className="flex-1 px-2 py-1 border rounded text-xs">
+                      <option value="circle">圓形框</option>
+                      <option value="square">方形框</option>
+                      <option value="glow">發光效果</option>
+                    </select>
+                  </div>
+                  <button onClick={() => { if (highlightSettings.person) setHighlights({ ...highlights, [highlightSettings.person]: { color: highlightSettings.color, type: highlightSettings.type } }); }}
+                    className="w-full px-2 py-1 bg-teal-600 text-white rounded text-xs">新增標註</button>
+                  <button onClick={() => setHighlights({})} className="w-full px-2 py-1 bg-gray-200 rounded text-xs">清除所有標註</button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm mb-2">🔗 人物關係線</h3>
+                <div className="space-y-2">
+                  <select value={newRelationship.personA}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, personA: e.target.value })}
+                    className="w-full px-2 py-1 border rounded text-xs">
+                    <option value="">人物 A</option>
+                    {displayData.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                  <select value={newRelationship.personB}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, personB: e.target.value })}
+                    className="w-full px-2 py-1 border rounded text-xs">
+                    <option value="">人物 B</option>
+                    {displayData.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                  <select value={newRelationship.type}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, type: e.target.value })}
+                    className="w-full px-2 py-1 border rounded text-xs">
+                    {Object.entries(RELATIONSHIP_TYPES).map(([key, rel]) => <option key={key} value={key}>{rel.name}</option>)}
+                  </select>
+                  <button onClick={() => { if (newRelationship.personA && newRelationship.personB) { setRelationships([...relationships, newRelationship]); setNewRelationship({ personA: '', personB: '', type: 'compete' }); } }}
+                    className="w-full px-2 py-1 bg-teal-600 text-white rounded text-xs">新增關係</button>
+                  <button onClick={() => setRelationships([])} className="w-full px-2 py-1 bg-gray-200 rounded text-xs">清除所有關係線</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── 設定 Tab ── */}
+          {activeTab === 'settings' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-bold text-sm mb-2">📐 畫布設定</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: '16:9', label: '16:9', size: '1920×1080' },
+                    { key: 'square', label: '正方形', size: '1080×1080' },
+                    { key: 'og', label: 'OG', size: '1200×630' }
+                  ].map(option => (
+                    <button key={option.key} onClick={() => setCanvasSize(option.key)}
+                      className={`p-2 border rounded text-xs ${canvasSize === option.key ? 'border-teal-600 bg-teal-50' : ''}`}>
+                      <div className="font-bold">{option.label}</div>
+                      <div className="text-gray-500 text-xs">{option.size}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm mb-2">📝 標題</h3>
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+                  className="w-full px-2 py-1 border rounded text-xs mb-2" placeholder="主標題" />
+                <input type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)}
+                  placeholder="副標題" className="w-full px-2 py-1 border rounded text-xs" />
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm mb-2">⚙️ 泡泡設定</h3>
+                <div className="space-y-2">
+                  {[
+                    { key: 'minRadius', label: '最小半徑', min: 3, max: 20 },
+                    { key: 'maxRadius', label: '最大半徑', min: 20, max: 100 },
+                    { key: 'fontSize', label: '標籤字體', min: 8, max: 16 }
+                  ].map(({ key, label, min, max }) => (
+                    <div key={key}>
+                      <label className="text-xs">{label}: {bubbleSettings[key]}px</label>
+                      <input type="range" min={min} max={max} value={bubbleSettings[key]}
+                        onChange={(e) => setBubbleSettings({ ...bubbleSettings, [key]: parseInt(e.target.value) })}
+                        className="w-full" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── 右側圖形區 ── */}
+      <div className="flex-1 p-4 overflow-hidden bg-gray-100 flex flex-col relative">
+        {/* 頂部工具列 */}
+        <div className="mb-2 flex justify-between items-center flex-shrink-0">
+          <div className="flex gap-4 text-sm">
+            <span>總數: <span className="font-bold">{mergedData.length}</span></span>
+            <span>全國性: <span className="font-bold text-teal-600">{mergedData.filter(d => d.national_affairs).length}</span></span>
+            <span>顯示: <span className="font-bold text-blue-600">{displayData.length}</span></span>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={exportSVG} disabled={displayData.length === 0}
+              className="px-3 py-1 bg-teal-600 text-white rounded text-sm disabled:bg-gray-300">下載 SVG</button>
+            <button onClick={exportPNG} disabled={displayData.length === 0}
+              className="px-3 py-1 bg-blue-600 text-white rounded text-sm disabled:bg-gray-300">下載 PNG</button>
+          </div>
+        </div>
+
+        {/* 圖形容器（可縮放平移） */}
+        <div ref={chartContainerRef} className="chart-container rounded-lg shadow-lg flex-1"
+          style={{ touchAction: 'none', backgroundColor: '#f3f4f6' }}>
+          <div className="chart-inner bg-white"
+            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+            <svg ref={svgRef} width={dims.width} height={dims.height} style={{ display: 'block' }}>
+              <text x={dims.width / 2} y={35} fontSize="22" fontWeight="bold" textAnchor="middle" fill="#3B7D7D">
+                {title}
+              </text>
+              {subtitle && (
+                <text x={dims.width / 2} y={55} fontSize="14" textAnchor="middle" fill="#666">{subtitle}</text>
+              )}
+              {partiesInChart.length > 0 && (
+                <g transform="translate(60, 68)">
+                  {partiesInChart.map((party, idx) => {
+                    const info = PARTY_COLORS[party] || PARTY_COLORS['無特定政黨屬性'];
+                    const col = idx % 8;
+                    const row = Math.floor(idx / 8);
+                    return (
+                      <g key={party} transform={`translate(${col * 120}, ${row * 20})`}>
+                        <circle cx={7} cy={7} r={5} fill={info.color} />
+                        <text x={17} y={11} fontSize="11" fill="#333">{party}</text>
+                      </g>
+                    );
+                  })}
+                </g>
+              )}
+              {renderChart()}
+            </svg>
+          </div>
+        </div>
+
+        {/* 右下角：回到預設按鈕 */}
+        {!isAtFit && (
+          <button onClick={handleZoomReset}
+            className="absolute bottom-8 right-8 z-10 flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-md text-xs text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all"
+            title="回到預設大小">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+            回到預設
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
