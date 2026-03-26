@@ -1322,6 +1322,73 @@ export default function App() {
                   placeholder="副標題" className="w-full px-2 py-1 border rounded text-xs" />
               </div>
 
+              {/* ── X / Y 軸範圍 ── */}
+              <div>
+                <h3 className="font-bold text-sm mb-2">📏 軸範圍設定</h3>
+                <div className="space-y-2">
+                  {/* 自動調整切換 */}
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <div
+                      onClick={() => setAxisRange(prev => ({ ...prev, autoAdjust: !prev.autoAdjust }))}
+                      className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${axisRange.autoAdjust ? 'bg-teal-600' : 'bg-gray-300'}`}
+                    >
+                      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${axisRange.autoAdjust ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </div>
+                    <span className="text-xs">自動調整（依數據）</span>
+                  </label>
+
+                  {/* 手動輸入：autoAdjust 關閉時才啟用 */}
+                  <div className={axisRange.autoAdjust ? 'opacity-40 pointer-events-none' : ''}>
+                    <div className="text-xs font-medium text-gray-600 mb-1">X 軸（外部影響力）</div>
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                      <div>
+                        <label className="text-xs text-gray-500">最小值</label>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={axisRange.xMin}
+                          onChange={(e) => setAxisRange(prev => ({ ...prev, xMin: e.target.value }))}
+                          className="w-full px-2 py-1 border rounded text-xs mt-0.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500">最大值</label>
+                        <input
+                          type="number"
+                          placeholder="100000"
+                          value={axisRange.xMax}
+                          onChange={(e) => setAxisRange(prev => ({ ...prev, xMax: e.target.value }))}
+                          className="w-full px-2 py-1 border rounded text-xs mt-0.5"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-xs font-medium text-gray-600 mb-1">Y 軸（內部影響力）</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-gray-500">最小值</label>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={axisRange.yMin}
+                          onChange={(e) => setAxisRange(prev => ({ ...prev, yMin: e.target.value }))}
+                          className="w-full px-2 py-1 border rounded text-xs mt-0.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500">最大值</label>
+                        <input
+                          type="number"
+                          placeholder="50000"
+                          value={axisRange.yMax}
+                          onChange={(e) => setAxisRange(prev => ({ ...prev, yMax: e.target.value }))}
+                          className="w-full px-2 py-1 border rounded text-xs mt-0.5"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <h3 className="font-bold text-sm mb-2">⚙️ 泡泡設定</h3>
                 <div className="space-y-2">
