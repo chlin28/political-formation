@@ -897,9 +897,10 @@ export default function App() {
               {highlight?.type === 'glow' && (
                 <circle cx={p.x} cy={p.y} r={p.size + 6} fill="none" stroke={highlight.color} strokeWidth="3" opacity="0.55" />
               )}
-              <circle cx={p.x} cy={p.y} r={p.size} fill={partyInfo.color}
-                stroke={highlight?.type === 'circle' ? highlight.color : 'none'}
-                strokeWidth={highlight?.type === 'circle' ? 3 : 0} opacity="0.82" />
+              {highlight?.type === 'circle' && (
+                <circle cx={p.x} cy={p.y} r={p.size + 8} fill="none" stroke={highlight.color} strokeWidth="2.5" opacity="0.9" />
+              )}
+              <circle cx={p.x} cy={p.y} r={p.size} fill={partyInfo.color} opacity="0.82" />
               {highlight?.type === 'square' && (
                 <rect x={p.x - p.size - 4} y={p.y - p.size - 4}
                   width={(p.size + 4) * 2} height={(p.size + 4) * 2}
@@ -1242,10 +1243,27 @@ export default function App() {
                 <h3 className="font-bold text-sm mb-2">排名篩選</h3>
                 <div className="grid grid-cols-2 gap-2">
                   <input type="number" placeholder="開始排名" value={rankFilter.start}
-                    onChange={(e) => setRankFilter({ ...rankFilter, start: e.target.value })} className="px-2 py-1 border rounded text-xs" />
+                    onChange={(e) => setRankFilter(prev => ({ ...prev, start: e.target.value }))}
+                    onBlur={() => {
+                      const s = parseInt(rankFilter.start);
+                      const e = parseInt(rankFilter.end);
+                      if (!isNaN(s) && !isNaN(e) && s > e) {
+                        setRankFilter({ start: String(e), end: String(s) });
+                      }
+                    }}
+                    className="px-2 py-1 border rounded text-xs" />
                   <input type="number" placeholder="結束排名" value={rankFilter.end}
-                    onChange={(e) => setRankFilter({ ...rankFilter, end: e.target.value })} className="px-2 py-1 border rounded text-xs" />
+                    onChange={(e) => setRankFilter(prev => ({ ...prev, end: e.target.value }))}
+                    onBlur={() => {
+                      const s = parseInt(rankFilter.start);
+                      const e = parseInt(rankFilter.end);
+                      if (!isNaN(s) && !isNaN(e) && s > e) {
+                        setRankFilter({ start: String(e), end: String(s) });
+                      }
+                    }}
+                    className="px-2 py-1 border rounded text-xs" />
                 </div>
+                <p className="text-xs text-gray-400 mt-1">輸入後自動調整為小→大順序</p>
               </div>
 
               <div className="border-t pt-3">
