@@ -201,12 +201,19 @@ export default function App() {
   // Supabase：初始載入 & 即時訂閱
   // ══════════════════════════════════════════════════════
   useEffect(() => {
-    // 初始載入全部資料
+    // 初始載入全部資料（分批讀取，突破 Supabase 1000 筆上限）
     const loadAll = async () => {
       setDbLoading(true);
-      const { data, error } = await supabase.from('politicians').select('*');
-      if (!error && data) {
-        const db = {};
+      const db = {};
+      const PAGE = 1000;
+      let from = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('politicians')
+          .select('*')
+          .range(from, from + PAGE - 1);
+        if (error || !data) break;
         data.forEach(row => {
           db[row.alias] = {
             political_party_label: row.political_party_label,
@@ -215,8 +222,10 @@ export default function App() {
             national_affairs: row.national_affairs
           };
         });
-        setPoliticianDB(db);
+        hasMore = data.length === PAGE;
+        from += PAGE;
       }
+      setPoliticianDB(db);
       setDbLoading(false);
     };
     loadAll();
@@ -969,7 +978,11 @@ export default function App() {
                         </button>
                       )}
                     </div>
-                    <input type="file" accept=".csv" ref={politicianFileRef} onChange={handlePoliticianListUpload} className="text-xs w-full" />
+                    <label className="flex items-center justify-center gap-2 w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded bg-white hover:border-teal-400 hover:bg-teal-50 cursor-pointer transition-colors text-xs text-gray-500">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      選擇檔案
+                      <input type="file" accept=".csv" ref={politicianFileRef} onChange={handlePoliticianListUpload} className="hidden" />
+                    </label>
                     {Object.keys(politicianDB).length > 0 && (
                       <div className="text-xs text-green-600 mt-1">✓ 已載入 {Object.keys(politicianDB).length} 人（含資料庫資料）</div>
                     )}
@@ -987,7 +1000,11 @@ export default function App() {
                           className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded hover:bg-red-200">清除</button>
                       )}
                     </div>
-                    <input type="file" accept=".csv" multiple ref={internalFileRef} onChange={(e) => handleFiles(e, 'internal')} className="text-xs w-full" />
+                    <label className="flex items-center justify-center gap-2 w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded bg-white hover:border-teal-400 hover:bg-teal-50 cursor-pointer transition-colors text-xs text-gray-500">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      選擇檔案（可多選）
+                      <input type="file" accept=".csv" multiple ref={internalFileRef} onChange={(e) => handleFiles(e, 'internal')} className="hidden" />
+                    </label>
                     {internalFiles.length > 0 && <div className="text-xs text-green-600 mt-1">✓ 已載入 {internalFiles.length} 人</div>}
                   </div>
 
@@ -1000,7 +1017,11 @@ export default function App() {
                           className="text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded hover:bg-red-200">清除</button>
                       )}
                     </div>
-                    <input type="file" accept=".csv" multiple ref={externalFileRef} onChange={(e) => handleFiles(e, 'external')} className="text-xs w-full" />
+                    <label className="flex items-center justify-center gap-2 w-full px-3 py-2 border-2 border-dashed border-gray-300 rounded bg-white hover:border-teal-400 hover:bg-teal-50 cursor-pointer transition-colors text-xs text-gray-500">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      選擇檔案（可多選）
+                      <input type="file" accept=".csv" multiple ref={externalFileRef} onChange={(e) => handleFiles(e, 'external')} className="hidden" />
+                    </label>
                     {externalFiles.length > 0 && <div className="text-xs text-green-600 mt-1">✓ 已載入 {externalFiles.length} 人</div>}
                   </div>
                 </div>
@@ -1262,6 +1283,22 @@ export default function App() {
                   </div>
                   <button onClick={() => { if (highlightSettings.person) setHighlights({ ...highlights, [highlightSettings.person]: { color: highlightSettings.color, type: highlightSettings.type } }); }}
                     className="w-full px-2 py-1 bg-teal-600 text-white rounded text-xs">新增標註</button>
+                  {Object.keys(highlights).length > 0 && (
+                    <div className="space-y-1 mt-1">
+                      {Object.entries(highlights).map(([name, hl]) => (
+                        <div key={name} className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded">
+                          <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', backgroundColor: hl.color, flexShrink: 0, border: '1.5px solid rgba(0,0,0,0.1)' }} />
+                          <span className="flex-1 text-xs truncate">{name}</span>
+                          <button
+                            onClick={() => { const next = { ...highlights }; delete next[name]; setHighlights(next); }}
+                            className="text-gray-400 hover:text-red-500 text-xs font-bold px-1 flex-shrink-0"
+                            title="移除標註">
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <button onClick={() => setHighlights({})} className="w-full px-2 py-1 bg-gray-200 rounded text-xs">清除所有標註</button>
                 </div>
               </div>
@@ -1288,6 +1325,25 @@ export default function App() {
                   </select>
                   <button onClick={() => { if (newRelationship.personA && newRelationship.personB) { setRelationships([...relationships, newRelationship]); setNewRelationship({ personA: '', personB: '', type: 'compete' }); } }}
                     className="w-full px-2 py-1 bg-teal-600 text-white rounded text-xs">新增關係</button>
+                  {relationships.length > 0 && (
+                    <div className="space-y-1 mt-1">
+                      {relationships.map((rel, idx) => {
+                        const relType = RELATIONSHIP_TYPES[rel.type];
+                        return (
+                          <div key={idx} className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded">
+                            <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', backgroundColor: relType.color, flexShrink: 0, border: '1.5px solid rgba(0,0,0,0.1)' }} />
+                            <span className="flex-1 text-xs truncate">{rel.personA} ↔ {rel.personB}</span>
+                            <button
+                              onClick={() => setRelationships(prev => prev.filter((_, i) => i !== idx))}
+                              className="text-gray-400 hover:text-red-500 text-xs font-bold px-1 flex-shrink-0"
+                              title="移除關係線">
+                              ✕
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   <button onClick={() => setRelationships([])} className="w-full px-2 py-1 bg-gray-200 rounded text-xs">清除所有關係線</button>
                 </div>
               </div>
@@ -1329,12 +1385,30 @@ export default function App() {
                   {/* 自動調整切換 */}
                   <label className="flex items-center gap-2 cursor-pointer">
                     <div
-                      onClick={() => setAxisRange(prev => ({ ...prev, autoAdjust: !prev.autoAdjust }))}
+                      onClick={() => {
+                        if (axisRange.autoAdjust) {
+                          // 關閉自動調整時，把當前自動計算值填入欄位
+                          const externals = displayData.map(d => d.external);
+                          const internals = displayData.filter(d => !d.externalOnly).map(d => d.internal);
+                          const autoMaxX = Math.round((Math.max(...(externals.length ? externals : [100000])) || 100000) * 1.05);
+                          const autoMaxY = Math.round((Math.max(...(internals.length ? internals : [50000])) || 50000) * 1.05);
+                          setAxisRange(prev => ({
+                            ...prev,
+                            autoAdjust: false,
+                            xMin: prev.xMin !== '' ? prev.xMin : '0',
+                            xMax: prev.xMax !== '' ? prev.xMax : String(autoMaxX),
+                            yMin: prev.yMin !== '' ? prev.yMin : '0',
+                            yMax: prev.yMax !== '' ? prev.yMax : String(autoMaxY),
+                          }));
+                        } else {
+                          setAxisRange(prev => ({ ...prev, autoAdjust: true }));
+                        }
+                      }}
                       className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${axisRange.autoAdjust ? 'bg-teal-600' : 'bg-gray-300'}`}
                     >
                       <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${axisRange.autoAdjust ? 'translate-x-5' : 'translate-x-0.5'}`} />
                     </div>
-                    <span className="text-xs">自動調整（依數據）</span>
+                    <span className="text-xs">自動調整（依數據最大值縮放）</span>
                   </label>
 
                   {/* 手動輸入：autoAdjust 關閉時才啟用 */}
@@ -1460,18 +1534,32 @@ export default function App() {
           </div>
         </div>
 
-        {/* 右下角：回到預設按鈕 */}
-        {!isAtFit && (
-          <button onClick={handleZoomReset}
-            className="absolute bottom-8 right-8 z-10 flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-md text-xs text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all"
-            title="回到預設大小">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-            回到預設
+        {/* 右下角：縮放控制按鈕 */}
+        <div className="absolute bottom-8 right-8 z-10 flex flex-col items-center gap-1">
+          <button
+            onClick={() => setZoom(prev => Math.min(prev * 1.2, 5))}
+            className="w-9 h-9 flex items-center justify-center bg-white border border-gray-300 rounded-lg shadow-md text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all text-lg font-bold"
+            title="放大">
+            +
           </button>
-        )}
+          <button
+            onClick={() => setZoom(prev => Math.max(prev / 1.2, 0.05))}
+            className="w-9 h-9 flex items-center justify-center bg-white border border-gray-300 rounded-lg shadow-md text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all text-lg font-bold"
+            title="縮小">
+            −
+          </button>
+          {!isAtFit && (
+            <button onClick={handleZoomReset}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-md text-xs text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-all whitespace-nowrap"
+              title="回到預設大小">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              回到預設大小
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
