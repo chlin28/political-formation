@@ -838,8 +838,35 @@ export default function App() {
     const xTicks = [0, 0.25, 0.5, 0.75, 1].map(ratio => ({ pos: width * ratio, value: Math.round(minX + (maxX - minX) * ratio) }));
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map(ratio => ({ pos: height * (1 - ratio), value: Math.round(minY + (maxY - minY) * ratio) }));
 
+    // 象限分隔線位置（數據範圍中點）
+    const midXVal = (minX + maxX) / 2;
+    const midYVal = (minY + maxY) / 2;
+    const midXPx = scaleValue(midXVal, minX, maxX, 0, width);
+    const midYPx = scaleValue(midYVal, minY, maxY, height, 0);
+
     return (
       <g transform={`translate(${margin.left},${margin.top})`}>
+
+        {/* 象限背景色 */}
+        {/* Q2 左上：鐵粉經營 - 淡藍綠 */}
+        <rect x={0} y={0} width={midXPx} height={midYPx} fill="#EAF6F6" />
+        {/* Q1 右上：風暴中心 - 淡橘紅 */}
+        <rect x={midXPx} y={0} width={width - midXPx} height={midYPx} fill="#FEF0E6" />
+        {/* Q3 左下：沉潛蟄伏 - 淡灰藍 */}
+        <rect x={0} y={midYPx} width={midXPx} height={height - midYPx} fill="#EEF1F7" />
+        {/* Q4 右下：被動捲入 - 淡粉 */}
+        <rect x={midXPx} y={midYPx} width={width - midXPx} height={height - midYPx} fill="#FEF3F3" />
+
+        {/* 象限標籤 */}
+        <text x={midXPx / 2} y={28} textAnchor="middle" fontSize="15" fill="#3A9A8A" opacity="0.75">🏠 鐵粉經營</text>
+        <text x={midXPx + (width - midXPx) / 2} y={28} textAnchor="middle" fontSize="15" fill="#C05A20" opacity="0.75">🔥 風暴中心</text>
+        <text x={midXPx / 2} y={height - 16} textAnchor="middle" fontSize="15" fill="#5A6A8A" opacity="0.75">😶 沉潛蟄伏</text>
+        <text x={midXPx + (width - midXPx) / 2} y={height - 16} textAnchor="middle" fontSize="15" fill="#B04040" opacity="0.75">🎯 被動捲入</text>
+
+        {/* 象限分隔虛線 */}
+        <line x1={midXPx} y1={0} x2={midXPx} y2={height} stroke="#888" strokeWidth="1.5" strokeDasharray="8,6" opacity="0.5" />
+        <line x1={0} y1={midYPx} x2={width} y2={midYPx} stroke="#888" strokeWidth="1.5" strokeDasharray="8,6" opacity="0.5" />
+
         {/* 格線 */}
         <g opacity="0.25">
           {xTicks.map((tick, i) => (
@@ -916,11 +943,11 @@ export default function App() {
 
         {/* 軸標籤 */}
         <text x={width / 2} y={height + 58} fontSize="13" textAnchor="middle" fill="#444">
-          外部影響力（外部 engagement_score）
+          外部影響力（非自主經營：媒體、他人粉專討論）→
         </text>
         <text x={0} y={0} fontSize="13" textAnchor="middle" fill="#444"
           transform={`translate(${-margin.left + 22}, ${height / 2}) rotate(-90)`}>
-          內部影響力（內部 engagement_score）
+          ↑ 內部影響力（自主經營：粉專貼文）
         </text>
       </g>
     );
