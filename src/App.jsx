@@ -28,6 +28,26 @@ const COUNTIES = [
   '不分區', '山地原住民', '平地原住民'
 ];
 
+// 政黨排序（優先順序）
+const PARTY_ORDER = [
+  '民進黨', '國民黨', '民眾黨', '時代力量', '基進黨', '無特定政黨屬性', '社民黨'
+];
+const sortParties = (parties) => {
+  return [...parties].sort((a, b) => {
+    const ai = PARTY_ORDER.indexOf(a);
+    const bi = PARTY_ORDER.indexOf(b);
+    const isOtherA = a === '其他政黨';
+    const isOtherB = b === '其他政黨';
+    if (isOtherA) return 1;
+    if (isOtherB) return -1;
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    // 其餘依筆畫（locale）排序
+    return a.localeCompare(b, 'zh-Hant-TW');
+  });
+};
+
 const RELATIONSHIP_TYPES = {
   compete: { name: '競爭對立', color: '#FF0000', dash: '5,5' },
   criticize: { name: '批評攻擊', color: '#FF6B6B', dash: '10,5' },
@@ -154,6 +174,25 @@ export default function App() {
   const [axisRange, setAxisRange] = useState({
     xMin: '', xMax: '', yMin: '', yMax: '', autoAdjust: true
   });
+
+  // 象限篩選
+  const [selectedQuadrants, setSelectedQuadrants] = useState([]);
+  const toggleQuadrant = (q) => setSelectedQuadrants(prev => prev.includes(q) ? prev.filter(x => x !== q) : [...prev, q]);
+
+  // 顯示選項
+  const [displayOptions, setDisplayOptions] = useState({
+    quadrantBg: true,
+    quadrantLabel: true,
+    momentum: true,
+    relationLines: true,
+    trendMark: true,
+    nameLabel: true,
+    labelAntiOverlap: true,
+  });
+  const toggleDisplayOption = (key) => setDisplayOptions(prev => ({ ...prev, [key]: !prev[key] }));
+
+  // 局部放大模式
+  const [zoomFocusPerson, setZoomFocusPerson] = useState('');
 
   const [highlights, setHighlights] = useState({});
   const [highlightSettings, setHighlightSettings] = useState({
@@ -566,14 +605,31 @@ export default function App() {
       const taggedNames = Object.entries(tags).filter(([_, t]) => t === selectedTag).map(([name]) => name);
       filtered = filtered.filter(d => taggedNames.includes(d.name));
     }
+    // 象限篩選（依據 external / internal 中位數判斷象限）
+    if (selectedQuadrants.length > 0) {
+      const externals = base.map(d => d.external);
+      const internals = base.filter(d => !d.externalOnly).map(d => d.internal);
+      const midX = externals.length ? (Math.min(...externals) + Math.max(...externals)) / 2 : 0;
+      const midY = internals.length ? (Math.min(...internals) + Math.max(...internals)) / 2 : 0;
+      filtered = filtered.filter(d => {
+        const highX = d.external >= midX;
+        const highY = !d.externalOnly && d.internal >= midY;
+        if (selectedQuadrants.includes('q1') && highX && highY) return true;   // 風暴中心
+        if (selectedQuadrants.includes('q2') && !highX && highY) return true;  // 鐵粉經營
+        if (selectedQuadrants.includes('q3') && !highX && !highY) return true; // 沉潛蟄伏
+        if (selectedQuadrants.includes('q4') && highX && !highY) return true;  // 被動捲入
+        return false;
+      });
+    }
     setDisplayData(filtered);
-  }, [mergedData, showNationalOnly, selectedParties, selectedCities, searchName, rankFilter, selectedTag, tags]);
+  }, [mergedData, showNationalOnly, selectedParties, selectedCities, searchName, rankFilter, selectedTag, tags, selectedQuadrants]);
 
   useEffect(() => { applyFilters(); }, [applyFilters]);
 
   const clearFilters = () => {
     setShowNationalOnly(false); setSelectedParties([]); setSelectedCities([]);
     setSearchName(''); setRankFilter({ start: '', end: '' }); setSelectedTag('');
+    setSelectedQuadrants([]);
   };
 
   const toggleParty = (party) => setSelectedParties(prev => prev.includes(party) ? prev.filter(p => p !== party) : [...prev, party]);
@@ -790,9 +846,9 @@ export default function App() {
   // 圖表渲染
   // ══════════════════════════════════════════════════════
   const dims = getCanvasDimensions();
-  const partiesInChart = [...new Set(displayData.map(d => d.party))].sort();
+  const partiesInChart = sortParties([...new Set(displayData.map(d => d.party))]);
   const filterBase = useMemo(() => showNationalOnly ? mergedData.filter(d => d.national_affairs) : mergedData, [mergedData, showNationalOnly]);
-  const availableParties = [...new Set(filterBase.map(d => d.party))].sort();
+  const availableParties = sortParties([...new Set(filterBase.map(d => d.party))]);
   const availableTags = [...new Set(Object.values(tags))];
 
   const scaleValue = (value, min, max, pixelMin, pixelMax) => {
@@ -847,21 +903,21 @@ export default function App() {
     return (
       <g transform={`translate(${margin.left},${margin.top})`}>
 
-        {/* 象限背景色 */}
-        {/* Q2 左上：鐵粉經營 - 淡藍綠 */}
-        <rect x={0} y={0} width={midXPx} height={midYPx} fill="#EAF6F6" />
-        {/* Q1 右上：風暴中心 - 淡橘紅 */}
-        <rect x={midXPx} y={0} width={width - midXPx} height={midYPx} fill="#FEF0E6" />
-        {/* Q3 左下：沉潛蟄伏 - 淡灰藍 */}
-        <rect x={0} y={midYPx} width={midXPx} height={height - midYPx} fill="#EEF1F7" />
-        {/* Q4 右下：被動捲入 - 淡粉 */}
-        <rect x={midXPx} y={midYPx} width={width - midXPx} height={height - midYPx} fill="#FEF3F3" />
+        {/* 象限背景色（極淡） */}
+        {displayOptions.quadrantBg && <>
+          <rect x={0} y={0} width={midXPx} height={midYPx} fill="#4ECDC4" opacity="0.07" />
+          <rect x={midXPx} y={0} width={width - midXPx} height={midYPx} fill="#FF6B35" opacity="0.07" />
+          <rect x={0} y={midYPx} width={midXPx} height={height - midYPx} fill="#7B9CC0" opacity="0.07" />
+          <rect x={midXPx} y={midYPx} width={width - midXPx} height={height - midYPx} fill="#FF9999" opacity="0.07" />
+        </>}
 
         {/* 象限標籤 */}
-        <text x={midXPx / 2} y={28} textAnchor="middle" fontSize="15" fill="#3A9A8A" opacity="0.75">🏠 鐵粉經營</text>
-        <text x={midXPx + (width - midXPx) / 2} y={28} textAnchor="middle" fontSize="15" fill="#C05A20" opacity="0.75">🔥 風暴中心</text>
-        <text x={midXPx / 2} y={height - 16} textAnchor="middle" fontSize="15" fill="#5A6A8A" opacity="0.75">😶 沉潛蟄伏</text>
-        <text x={midXPx + (width - midXPx) / 2} y={height - 16} textAnchor="middle" fontSize="15" fill="#B04040" opacity="0.75">🎯 被動捲入</text>
+        {displayOptions.quadrantLabel && <>
+          <text x={midXPx / 2} y={28} textAnchor="middle" fontSize="15" fill="#3A9A8A" opacity="0.75">🏠 鐵粉經營</text>
+          <text x={midXPx + (width - midXPx) / 2} y={28} textAnchor="middle" fontSize="15" fill="#C05A20" opacity="0.75">🔥 風暴中心</text>
+          <text x={midXPx / 2} y={height - 16} textAnchor="middle" fontSize="15" fill="#5A6A8A" opacity="0.75">😶 沉潛蟄伏</text>
+          <text x={midXPx + (width - midXPx) / 2} y={height - 16} textAnchor="middle" fontSize="15" fill="#B04040" opacity="0.75">🎯 被動捲入</text>
+        </>}
 
         {/* 象限分隔虛線 */}
         <line x1={midXPx} y1={0} x2={midXPx} y2={height} stroke="#888" strokeWidth="1.5" strokeDasharray="8,6" opacity="0.5" />
@@ -890,7 +946,7 @@ export default function App() {
         <text x={-8} y={height + 18} fontSize="11" fill="#333">(0,0)</text>
 
         {/* 關係線 */}
-        {relationships.map((rel, idx) => {
+        {displayOptions.relationLines && relationships.map((rel, idx) => {
           const pA = positions.find(p => p.name === rel.personA);
           const pB = positions.find(p => p.name === rel.personB);
           if (!pA || !pB) return null;
@@ -901,45 +957,98 @@ export default function App() {
           );
         })}
 
-        {/* 泡泡 & 標籤 */}
-        {positions.map(p => {
-          const partyInfo = PARTY_COLORS[p.party] || PARTY_COLORS['無特定政黨屬性'];
-          const highlight = highlights[p.name];
-          const isBold = searchName && p.name.includes(searchName);
+        {/* 泡泡 & 標籤（防重疊） */}
+        {(() => {
+          // 計算每個標籤的防重疊位置
+          const fontSize = bubbleSettings.fontSize;
+          const charW = fontSize * 0.62; // 中文字寬估算
+          const lineH = fontSize + 2;
+          // 已佔用的標籤矩形紀錄
+          const placed = [];
+          const getLabelRect = (cx, cy, text) => {
+            const tw = text.length * charW;
+            return { x: cx - tw / 2, y: cy - lineH, w: tw, h: lineH };
+          };
+          const overlaps = (a, b) => !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
+          // 候選偏移方向（先上，再右上、左上、右、左、下方向）
+          const offsets = [
+            (size) => ({ dx: 0,         dy: -(size + 6) }),
+            (size) => ({ dx: size * 0.7, dy: -(size + 6) }),
+            (size) => ({ dx: -size * 0.7,dy: -(size + 6) }),
+            (size) => ({ dx: size + 4,   dy: 0 }),
+            (size) => ({ dx: -(size + 4),dy: 0 }),
+            (size) => ({ dx: 0,          dy: size + 14 }),
+            (size) => ({ dx: size * 0.7, dy: -(size + 16) }),
+            (size) => ({ dx: -size * 0.7,dy: -(size + 16) }),
+          ];
 
-          if (p.externalOnly) {
+          return positions.map(p => {
+            const partyInfo = PARTY_COLORS[p.party] || PARTY_COLORS['無特定政黨屬性'];
+            const highlight = highlights[p.name];
+            const isBold = searchName && p.name.includes(searchName);
+
+            if (p.externalOnly) {
+              return (
+                <g key={p.id}>
+                  <polygon points={`${p.x},${p.y - 6} ${p.x - 4},${p.y + 1} ${p.x + 4},${p.y + 1}`} fill={partyInfo.color} opacity="0.7" />
+                  {displayOptions.nameLabel && (
+                    <text x={p.x} y={p.y - 10} fontSize={fontSize} fill="#222"
+                      textAnchor="middle" fontWeight={isBold ? 'bold' : 'normal'} fontStyle="italic" opacity="0.85">
+                      {p.name}
+                    </text>
+                  )}
+                </g>
+              );
+            }
+
+            // 防重疊：找到第一個不重疊的偏移
+            let labelDx = 0, labelDy = -(p.size + 6);
+            if (displayOptions.nameLabel && displayOptions.labelAntiOverlap) {
+              for (const getOff of offsets) {
+                const off = getOff(p.size);
+                const rect = getLabelRect(p.x + off.dx, p.y + off.dy, p.name);
+                if (!placed.some(r => overlaps(r, rect))) {
+                  labelDx = off.dx;
+                  labelDy = off.dy;
+                  placed.push(rect);
+                  break;
+                }
+              }
+              // 若全部重疊，仍使用預設位置
+              if (labelDx === 0 && labelDy === -(p.size + 6)) {
+                placed.push(getLabelRect(p.x, p.y + labelDy, p.name));
+              }
+            }
+
             return (
               <g key={p.id}>
-                <polygon points={`${p.x},${p.y - 6} ${p.x - 4},${p.y + 1} ${p.x + 4},${p.y + 1}`} fill={partyInfo.color} opacity="0.7" />
-                <text x={p.x} y={p.y - 10} fontSize={bubbleSettings.fontSize} fill={partyInfo.color}
-                  textAnchor="middle" fontWeight={isBold ? 'bold' : 'normal'} fontStyle="italic" opacity="0.85">
-                  {p.name}
-                </text>
+                {highlight?.type === 'glow' && (
+                  <circle cx={p.x} cy={p.y} r={p.size + 6} fill="none" stroke={highlight.color} strokeWidth="3" opacity="0.55" />
+                )}
+                {highlight?.type === 'circle' && (
+                  <circle cx={p.x} cy={p.y} r={p.size + 8} fill="none" stroke={highlight.color} strokeWidth="2.5" opacity="0.9" />
+                )}
+                <circle cx={p.x} cy={p.y} r={p.size} fill={partyInfo.color} opacity="0.82" />
+                {highlight?.type === 'square' && (
+                  <rect x={p.x - p.size - 4} y={p.y - p.size - 4}
+                    width={(p.size + 4) * 2} height={(p.size + 4) * 2}
+                    fill="none" stroke={highlight.color} strokeWidth="2.5" />
+                )}
+                {displayOptions.nameLabel && (
+                  <text
+                    x={p.x + labelDx}
+                    y={p.y + labelDy}
+                    fontSize={fontSize}
+                    fill="#111"
+                    textAnchor="middle"
+                    fontWeight={isBold ? 'bold' : 'normal'}>
+                    {p.name}
+                  </text>
+                )}
               </g>
             );
-          }
-
-          return (
-            <g key={p.id}>
-              {highlight?.type === 'glow' && (
-                <circle cx={p.x} cy={p.y} r={p.size + 6} fill="none" stroke={highlight.color} strokeWidth="3" opacity="0.55" />
-              )}
-              {highlight?.type === 'circle' && (
-                <circle cx={p.x} cy={p.y} r={p.size + 8} fill="none" stroke={highlight.color} strokeWidth="2.5" opacity="0.9" />
-              )}
-              <circle cx={p.x} cy={p.y} r={p.size} fill={partyInfo.color} opacity="0.82" />
-              {highlight?.type === 'square' && (
-                <rect x={p.x - p.size - 4} y={p.y - p.size - 4}
-                  width={(p.size + 4) * 2} height={(p.size + 4) * 2}
-                  fill="none" stroke={highlight.color} strokeWidth="2.5" />
-              )}
-              <text x={p.x} y={p.y - p.size - 6} fontSize={bubbleSettings.fontSize}
-                fill={partyInfo.color} textAnchor="middle" fontWeight={isBold ? 'bold' : 'normal'}>
-                {p.name}
-              </text>
-            </g>
-          );
-        })}
+          });
+        })()}
 
         {/* 軸標籤 */}
         <text x={width / 2} y={height + 58} fontSize="13" textAnchor="middle" fill="#444">
@@ -1220,6 +1329,13 @@ export default function App() {
                 </button>
                 {showPartyDropdown && (
                   <div className="absolute z-10 w-full mt-1 bg-white border rounded shadow-lg max-h-60 overflow-y-auto">
+                    {/* 全選 / 全不選 */}
+                    <div className="flex gap-1 px-3 py-1.5 border-b bg-gray-50 sticky top-0">
+                      <button onClick={() => setSelectedParties(availableParties)}
+                        className="flex-1 px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded hover:bg-teal-200">全選</button>
+                      <button onClick={() => setSelectedParties([])}
+                        className="flex-1 px-2 py-0.5 text-xs bg-gray-200 text-gray-600 rounded hover:bg-gray-300">全不選</button>
+                    </div>
                     {availableParties.map(party => {
                       const count = filterBase.filter(d => d.party === party).length;
                       const dotColor = (PARTY_COLORS[party] || PARTY_COLORS['無特定政黨屬性']).color;
@@ -1245,6 +1361,13 @@ export default function App() {
                 </button>
                 {showCityDropdown && (
                   <div className="absolute z-10 w-full mt-1 bg-white border rounded shadow-lg max-h-60 overflow-y-auto">
+                    {/* 全選 / 全不選 */}
+                    <div className="flex gap-1 px-3 py-1.5 border-b bg-gray-50 sticky top-0">
+                      <button onClick={() => setSelectedCities(COUNTIES)}
+                        className="flex-1 px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded hover:bg-teal-200">全選</button>
+                      <button onClick={() => setSelectedCities([])}
+                        className="flex-1 px-2 py-0.5 text-xs bg-gray-200 text-gray-600 rounded hover:bg-gray-300">全不選</button>
+                    </div>
                     {COUNTIES.map(county => {
                       const count = filterBase.filter(d => d.county && d.county.includes(county)).length;
                       return (
@@ -1293,10 +1416,32 @@ export default function App() {
                 <p className="text-xs text-gray-400 mt-1">輸入後自動調整為小→大順序</p>
               </div>
 
+              {/* 象限篩選 */}
+              <div>
+                <h3 className="font-bold text-sm mb-2">象限篩選</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: 'q1', label: '🔥 風暴中心', sub: '內外皆強', activeBg: 'bg-orange-100 border-orange-400', inactiveBg: 'bg-white border-gray-200' },
+                    { key: 'q2', label: '🏠 鐵粉經營', sub: '內強外弱', activeBg: 'bg-teal-100 border-teal-400', inactiveBg: 'bg-white border-gray-200' },
+                    { key: 'q3', label: '😶 沉潛蟄伏', sub: '內外皆弱', activeBg: 'bg-blue-100 border-blue-400', inactiveBg: 'bg-white border-gray-200' },
+                    { key: 'q4', label: '🎯 被動捲入', sub: '外強內弱', activeBg: 'bg-red-100 border-red-400', inactiveBg: 'bg-white border-gray-200' },
+                  ].map(({ key, label, sub, activeBg, inactiveBg }) => {
+                    const isActive = selectedQuadrants.includes(key);
+                    return (
+                      <button key={key} onClick={() => toggleQuadrant(key)}
+                        className={`flex flex-col items-center px-2 py-2 border-2 rounded text-xs transition-all ${isActive ? activeBg : inactiveBg}`}>
+                        <span className="font-medium text-center leading-tight">{label}</span>
+                        <span className="text-gray-400 text-xs mt-0.5">{sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="border-t pt-3">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-bold">符合條件: <span className="text-teal-600">{displayData.length}</span> 人</span>
-                  <button onClick={clearFilters} className="px-3 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">清除篩選</button>
+                  <button onClick={clearFilters} className="px-3 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">清除所有篩選</button>
                 </div>
               </div>
             </div>
@@ -1392,6 +1537,70 @@ export default function App() {
                   <button onClick={() => setRelationships([])} className="w-full px-2 py-1 bg-gray-200 rounded text-xs">清除所有關係線</button>
                 </div>
               </div>
+
+              {/* 局部放大模式 */}
+              <div className="border-t pt-3">
+                <h3 className="font-bold text-sm mb-1">🔍 局部放大模式</h3>
+                <div className="px-2 py-2 mb-2 rounded text-xs text-teal-800 leading-relaxed"
+                  style={{ backgroundColor: 'rgba(78,205,196,0.08)', border: '1px solid rgba(78,205,196,0.25)' }}>
+                  💡 選擇一個人物作為中心，自動調整視窗範圍，讓附近人物清楚顯示
+                </div>
+                <select value={zoomFocusPerson}
+                  onChange={(e) => setZoomFocusPerson(e.target.value)}
+                  className="w-full px-2 py-1 border rounded text-xs mb-2">
+                  <option value="">— 未啟用 —</option>
+                  {displayData.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+                <button
+                  onClick={() => {
+                    if (!zoomFocusPerson) return;
+                    const target = displayData.find(d => d.name === zoomFocusPerson);
+                    if (!target || !svgRef.current || !chartContainerRef.current) return;
+                    // 計算 target 的像素位置，置中顯示
+                    const externals = displayData.map(d => d.external);
+                    const internals = displayData.filter(d => !d.externalOnly).map(d => d.internal);
+                    const legendRows = partiesInChart.length > 0 ? Math.ceil(partiesInChart.length / 8) : 0;
+                    const legendHeight = legendRows > 0 ? 60 + legendRows * 20 : 60;
+                    const margin = { top: legendHeight + 40, right: 120, bottom: 90, left: 130 };
+                    const canvasDims = getCanvasDimensions();
+                    const w = canvasDims.width - margin.left - margin.right;
+                    const h = canvasDims.height - margin.top - margin.bottom;
+                    const minX = 0, maxX = (Math.max(...externals) || 1) * 1.05;
+                    const minY = 0, maxY = (Math.max(...(internals.length ? internals : [1])) || 1) * 1.05;
+                    const px = margin.left + (w * (target.external - minX) / (maxX - minX));
+                    const py = margin.top + (h * (1 - (target.internal - minY) / (maxY - minY)));
+                    const focusZoom = 3;
+                    const container = chartContainerRef.current;
+                    const cx = container.clientWidth / 2;
+                    const cy = container.clientHeight / 2;
+                    setZoom(focusZoom);
+                    setPan({ x: cx - px * focusZoom, y: cy - py * focusZoom });
+                  }}
+                  className="w-full px-2 py-1 bg-teal-600 text-white rounded text-xs hover:bg-teal-700">
+                  {zoomFocusPerson ? `啟用局部放大：${zoomFocusPerson}` : '啟用局部放大'}
+                </button>
+              </div>
+
+              {/* 顯示選項 */}
+              <div className="border-t pt-3">
+                <h3 className="font-bold text-sm mb-2">👁️ 顯示選項</h3>
+                <div className="space-y-1">
+                  {[
+                    { key: 'quadrantBg', label: '象限背景色' },
+                    { key: 'quadrantLabel', label: '象限標籤' },
+                    { key: 'momentum', label: '移動軌跡（上週 → 本週）' },
+                    { key: 'relationLines', label: '人物關係線' },
+                    { key: 'trendMark', label: '趨勢標記' },
+                    { key: 'nameLabel', label: '姓名標籤' },
+                    { key: 'labelAntiOverlap', label: '標籤防重疊' },
+                  ].map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2 cursor-pointer px-1 py-0.5 rounded hover:bg-gray-50 text-xs">
+                      <input type="checkbox" checked={displayOptions[key]} onChange={() => toggleDisplayOption(key)} className="accent-teal-600" />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1425,7 +1634,7 @@ export default function App() {
 
               {/* ── X / Y 軸範圍 ── */}
               <div>
-                <h3 className="font-bold text-sm mb-2">📏 軸範圍設定</h3>
+                <h3 className="font-bold text-sm mb-2">📊 軸範圍設定</h3>
                 <div className="space-y-2">
                   {/* 自動調整切換 */}
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -1453,7 +1662,7 @@ export default function App() {
                     >
                       <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${axisRange.autoAdjust ? 'translate-x-5' : 'translate-x-0.5'}`} />
                     </div>
-                    <span className="text-xs">自動調整（依數據最大值縮放）</span>
+                    <span className="text-xs">自動縮放（依數據最大值縮放）</span>
                   </label>
 
                   {/* 手動輸入：autoAdjust 關閉時才啟用 */}
