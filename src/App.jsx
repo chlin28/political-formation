@@ -137,6 +137,73 @@ const DBEditForm = ({ form, onChange, onSave, onCancel, bgClass = 'bg-yellow-50'
   </div>
 );
 
+// ── 快速載入：示範數據（2026/4/6–4/12 排名前三十）──────────
+const DEMO_INTERNAL = [
+  { name: '王婉諭',       internal: 16247, internalPost: 13 },
+  { name: '陳其邁',       internal: 13524, internalPost: 6  },
+  { name: '李四川',       internal: 6874,  internalPost: 11 },
+  { name: '王鴻薇',       internal: 5718,  internalPost: 9  },
+  { name: '王美惠',       internal: 5282,  internalPost: 14 },
+  { name: '伍麗華',       internal: 5031,  internalPost: 13 },
+  { name: '楊植斗',       internal: 4816,  internalPost: 8  },
+  { name: '陳培瑜',       internal: 4683,  internalPost: 14 },
+  { name: '林士峰',       internal: 4148,  internalPost: 17 },
+  { name: '吳欣岱',       internal: 4142,  internalPost: 24 },
+  { name: '陳亭妃',       internal: 3980,  internalPost: 13 },
+  { name: '邱毅',         internal: 3844,  internalPost: 12 },
+  { name: '范雲',         internal: 3541,  internalPost: 17 },
+  { name: '鍾東錦',       internal: 2600,  internalPost: 8  },
+  { name: '陳世軒',       internal: 2525,  internalPost: 9  },
+  { name: '許甫',         internal: 2390,  internalPost: 21 },
+  { name: '高虹安',       internal: 2271,  internalPost: 10 },
+  { name: '吳依潔',       internal: 2107,  internalPost: 8  },
+  { name: '張志豪_民進黨',internal: 1673,  internalPost: 5  },
+  { name: '簡千翔',       internal: 1538,  internalPost: 4  },
+  { name: '簡余晏',       internal: 1466,  internalPost: 15 },
+  { name: '黃淑君',       internal: 1313,  internalPost: 23 },
+  { name: '許采蓁',       internal: 1283,  internalPost: 4  },
+  { name: '黃瀞瑩',       internal: 1185,  internalPost: 5  },
+  { name: '盧秀燕',       internal: 1061,  internalPost: 2  },
+  { name: '黃瓊慧',       internal: 1056,  internalPost: 9  },
+  { name: '邱臣遠',       internal: 988,   internalPost: 11 },
+  { name: '陳琬惠',       internal: 975,   internalPost: 9  },
+  { name: '李柏毅_國民黨',internal: 904,   internalPost: 2  },
+  { name: '陳聖文',       internal: 883,   internalPost: 1  },
+];
+
+const DEMO_EXTERNAL = [
+  { name: '鄭麗文',       external: 737354, externalPost: 7930 },
+  { name: '卓榮泰',       external: 77417,  externalPost: 867  },
+  { name: '李洋',         external: 53284,  externalPost: 510  },
+  { name: '盧秀燕',       external: 42742,  externalPost: 567  },
+  { name: '蔣萬安',       external: 48849,  externalPost: 719  },
+  { name: '洪申翰',       external: 30404,  externalPost: 141  },
+  { name: '黃國昌',       external: 46002,  externalPost: 546  },
+  { name: '馬英九',       external: 24002,  externalPost: 424  },
+  { name: '傅崐萁',       external: 17325,  externalPost: 202  },
+  { name: '徐巧芯',       external: 24266,  externalPost: 209  },
+  { name: '蔡英文',       external: 26172,  externalPost: 374  },
+  { name: '梁文傑',       external: 26027,  externalPost: 209  },
+  { name: '陳其邁',       external: 28713,  externalPost: 257  },
+  { name: '韓國瑜',       external: 17581,  externalPost: 285  },
+  { name: '王惠美',       external: 16977,  externalPost: 242  },
+  { name: '王鴻薇',       external: 17480,  externalPost: 183  },
+  { name: '賴瑞隆',       external: 25751,  externalPost: 149  },
+  { name: '江啟臣',       external: 6689,   externalPost: 154  },
+  { name: '蘇巧慧',       external: 17545,  externalPost: 171  },
+  { name: '吳沛憶',       external: 9055,   externalPost: 79   },
+  { name: '羅智強',       external: 11977,  externalPost: 88   },
+  { name: '陳水扁',       external: 7423,   externalPost: 111  },
+  { name: '林楚茵',       external: 12920,  externalPost: 99   },
+  { name: '顧立雄',       external: 10101,  externalPost: 118  },
+  { name: '范雲',         external: 14387,  externalPost: 186  },
+  { name: '謝龍介',       external: 10293,  externalPost: 153  },
+  { name: '羅廷瑋',       external: 4566,   externalPost: 49   },
+  { name: '許淑華_國民黨',external: 5074,   externalPost: 69   },
+  { name: '林佳龍',       external: 7309,   externalPost: 119  },
+  { name: '張善政',       external: 6233,   externalPost: 151  },
+];
+
 export default function App() {
   // ── 政治人物列表（Supabase 共用資料庫）──────────────────
   const [politicianDB, setPoliticianDB] = useState({});
@@ -174,6 +241,9 @@ export default function App() {
   const [axisRange, setAxisRange] = useState({
     xMin: '', xMax: '', yMin: '', yMax: '', autoAdjust: true
   });
+
+  // 示範數據
+  const [demoLoaded, setDemoLoaded] = useState(false);
 
   // 象限篩選
   const [selectedQuadrants, setSelectedQuadrants] = useState([]);
@@ -585,6 +655,58 @@ export default function App() {
     setDisplayData(merged);
     const externalOnlyCount = merged.filter(d => d.externalOnly).length;
     alert(`合併完成！\n總計：${merged.length} 位\n全國性：${merged.filter(d => d.national_affairs).length} 位\n僅外部數據（僅標籤）：${externalOnlyCount} 位`);
+  };
+
+  // ══════════════════════════════════════════════════════
+  // 快速載入示範數據
+  // ══════════════════════════════════════════════════════
+  const loadDemoData = () => {
+    // 直接使用靜態示範數據，不透過 mergeData（避免 alert 和 Supabase 寫入）
+    const intMap = {};
+    DEMO_INTERNAL.forEach(d => { intMap[d.name] = d; });
+    const extMap = {};
+    DEMO_EXTERNAL.forEach(d => { extMap[d.name] = d; });
+    const allNames = new Set([...Object.keys(intMap), ...Object.keys(extMap)]);
+    const merged = [];
+    let id = 1;
+    allNames.forEach(name => {
+      const intItem = intMap[name];
+      const extItem = extMap[name];
+      const info = politicianDB[name];
+      const intVal = intItem?.internal ?? 0;
+      const intPost = intItem?.internalPost ?? 0;
+      const extVal = extItem?.external ?? 0;
+      const externalOnly = !intItem;
+      const avgPostImpact = (!externalOnly && intPost > 0) ? (intVal / intPost) : 0;
+      const momentum = externalOnly ? extVal : Math.sqrt(intVal * intVal + extVal * extVal);
+      merged.push({
+        id: id++, name, internal: intVal, external: extVal,
+        internalPost: intPost, avgPostImpact, externalOnly,
+        party: info?.political_party_label || '無特定政黨屬性',
+        county: info?.county || '',
+        bgw_spectrum: info?.bgw_spectrum || '',
+        national_affairs: info?.national_affairs === true,
+        momentum
+      });
+    });
+    merged.sort((a, b) => b.momentum - a.momentum);
+    internalFilesRef.current = DEMO_INTERNAL;
+    externalFilesRef.current = DEMO_EXTERNAL;
+    setInternalFiles(DEMO_INTERNAL);
+    setExternalFiles(DEMO_EXTERNAL);
+    setMergedData(merged);
+    setDisplayData(merged);
+    setDemoLoaded(true);
+  };
+
+  const clearDemoData = () => {
+    internalFilesRef.current = [];
+    externalFilesRef.current = [];
+    setInternalFiles([]);
+    setExternalFiles([]);
+    setMergedData([]);
+    setDisplayData([]);
+    setDemoLoaded(false);
   };
 
   // ══════════════════════════════════════════════════════
@@ -1100,6 +1222,28 @@ export default function App() {
           {/* ── 匯入 Tab ── */}
           {activeTab === 'data' && (
             <div className="space-y-3">
+
+              {/* 快速載入 */}
+              <div className="p-2 rounded border border-teal-200 bg-teal-50">
+                <h3 className="font-bold text-sm mb-2 text-teal-800">⚡ 快速載入</h3>
+                <div className="flex gap-2 mb-2">
+                  <button onClick={loadDemoData}
+                    className="flex-1 px-2 py-1.5 bg-teal-600 text-white rounded text-xs hover:bg-teal-700 font-medium">
+                    載入示範數據
+                  </button>
+                  <button onClick={clearDemoData}
+                    disabled={!demoLoaded}
+                    className="flex-1 px-2 py-1.5 bg-gray-200 text-gray-600 rounded text-xs hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed">
+                    清除示範數據
+                  </button>
+                </div>
+                {demoLoaded && (
+                  <p className="text-xs text-teal-700 leading-relaxed">
+                    📅 以 2026/4/6–2026/4/12 排名前三十名的政治人物為示範數據
+                  </p>
+                )}
+              </div>
+
               <div>
                 <h3 className="font-bold text-sm mb-2">匯入數據</h3>
                 <div className="space-y-3">
