@@ -138,70 +138,39 @@ const DBEditForm = ({ form, onChange, onSave, onCancel, bgClass = 'bg-yellow-50'
 );
 
 // ── 快速載入：示範數據（2026/4/6–4/12 排名前三十）──────────
-const DEMO_INTERNAL = [
-  { name: '王婉諭',       internal: 16247, internalPost: 13 },
-  { name: '陳其邁',       internal: 13524, internalPost: 6  },
-  { name: '李四川',       internal: 6874,  internalPost: 11 },
-  { name: '王鴻薇',       internal: 5718,  internalPost: 9  },
-  { name: '王美惠',       internal: 5282,  internalPost: 14 },
-  { name: '伍麗華',       internal: 5031,  internalPost: 13 },
-  { name: '楊植斗',       internal: 4816,  internalPost: 8  },
-  { name: '陳培瑜',       internal: 4683,  internalPost: 14 },
-  { name: '林士峰',       internal: 4148,  internalPost: 17 },
-  { name: '吳欣岱',       internal: 4142,  internalPost: 24 },
-  { name: '陳亭妃',       internal: 3980,  internalPost: 13 },
-  { name: '邱毅',         internal: 3844,  internalPost: 12 },
-  { name: '范雲',         internal: 3541,  internalPost: 17 },
-  { name: '鍾東錦',       internal: 2600,  internalPost: 8  },
-  { name: '陳世軒',       internal: 2525,  internalPost: 9  },
-  { name: '許甫',         internal: 2390,  internalPost: 21 },
-  { name: '高虹安',       internal: 2271,  internalPost: 10 },
-  { name: '吳依潔',       internal: 2107,  internalPost: 8  },
-  { name: '張志豪_民進黨',internal: 1673,  internalPost: 5  },
-  { name: '簡千翔',       internal: 1538,  internalPost: 4  },
-  { name: '簡余晏',       internal: 1466,  internalPost: 15 },
-  { name: '黃淑君',       internal: 1313,  internalPost: 23 },
-  { name: '許采蓁',       internal: 1283,  internalPost: 4  },
-  { name: '黃瀞瑩',       internal: 1185,  internalPost: 5  },
-  { name: '盧秀燕',       internal: 1061,  internalPost: 2  },
-  { name: '黃瓊慧',       internal: 1056,  internalPost: 9  },
-  { name: '邱臣遠',       internal: 988,   internalPost: 11 },
-  { name: '陳琬惠',       internal: 975,   internalPost: 9  },
-  { name: '李柏毅_國民黨',internal: 904,   internalPost: 2  },
-  { name: '陳聖文',       internal: 883,   internalPost: 1  },
-];
-
-const DEMO_EXTERNAL = [
-  { name: '鄭麗文',       external: 737354, externalPost: 7930 },
-  { name: '卓榮泰',       external: 77417,  externalPost: 867  },
-  { name: '李洋',         external: 53284,  externalPost: 510  },
-  { name: '盧秀燕',       external: 42742,  externalPost: 567  },
-  { name: '蔣萬安',       external: 48849,  externalPost: 719  },
-  { name: '洪申翰',       external: 30404,  externalPost: 141  },
-  { name: '黃國昌',       external: 46002,  externalPost: 546  },
-  { name: '馬英九',       external: 24002,  externalPost: 424  },
-  { name: '傅崐萁',       external: 17325,  externalPost: 202  },
-  { name: '徐巧芯',       external: 24266,  externalPost: 209  },
-  { name: '蔡英文',       external: 26172,  externalPost: 374  },
-  { name: '梁文傑',       external: 26027,  externalPost: 209  },
-  { name: '陳其邁',       external: 28713,  externalPost: 257  },
-  { name: '韓國瑜',       external: 17581,  externalPost: 285  },
-  { name: '王惠美',       external: 16977,  externalPost: 242  },
-  { name: '王鴻薇',       external: 17480,  externalPost: 183  },
-  { name: '賴瑞隆',       external: 25751,  externalPost: 149  },
-  { name: '江啟臣',       external: 6689,   externalPost: 154  },
-  { name: '蘇巧慧',       external: 17545,  externalPost: 171  },
-  { name: '吳沛憶',       external: 9055,   externalPost: 79   },
-  { name: '羅智強',       external: 11977,  externalPost: 88   },
-  { name: '陳水扁',       external: 7423,   externalPost: 111  },
-  { name: '林楚茵',       external: 12920,  externalPost: 99   },
-  { name: '顧立雄',       external: 10101,  externalPost: 118  },
-  { name: '范雲',         external: 14387,  externalPost: 186  },
-  { name: '謝龍介',       external: 10293,  externalPost: 153  },
-  { name: '羅廷瑋',       external: 4566,   externalPost: 49   },
-  { name: '許淑華_國民黨',external: 5074,   externalPost: 69   },
-  { name: '林佳龍',       external: 7309,   externalPost: 119  },
-  { name: '張善政',       external: 6233,   externalPost: 151  },
+// 欄位說明：external=外部_x軸、internal=內部_y軸、avgPostImpact=圈圈大小（內部_y軸/postcount）
+// postcount=0 且 internal=0 者為 externalOnly（無自主粉專數據）
+const DEMO_DATA = [
+  { name: '鄭麗文',  party: '國民黨',       postcount: 22, external: 737354, internal: 46875, avgPostImpact: 2131 },
+  { name: '賴清德',  party: '民進黨',       postcount:  6, external: 152582, internal: 16605, avgPostImpact: 2768 },
+  { name: '柯文哲',  party: '民眾黨',       postcount:  2, external: 105418, internal:  2453, avgPostImpact: 1227 },
+  { name: '卓榮泰',  party: '民進黨',       postcount: 12, external:  77417, internal:  1792, avgPostImpact:  149 },
+  { name: '李洋',    party: '無特定政黨屬性',postcount:  1, external:  53284, internal:   970, avgPostImpact:  970 },
+  { name: '蔣萬安',  party: '國民黨',       postcount:  3, external:  48849, internal:  1987, avgPostImpact:  662 },
+  { name: '黃國昌',  party: '民眾黨',       postcount: 11, external:  46002, internal: 11649, avgPostImpact: 1059 },
+  { name: '盧秀燕',  party: '國民黨',       postcount:  2, external:  42742, internal:  1061, avgPostImpact:  531 },
+  { name: '陳其邁',  party: '民進黨',       postcount:  6, external:  28713, internal: 13524, avgPostImpact: 2254 },
+  { name: '李貞秀',  party: '民眾黨',       postcount: 10, external:  30936, internal:   662, avgPostImpact:   66 },
+  { name: '洪申翰',  party: '民進黨',       postcount:  3, external:  30404, internal:   118, avgPostImpact:   39 },
+  { name: '沈伯洋',  party: '民進黨',       postcount:  2, external:  29352, internal:  5071, avgPostImpact: 2536 },
+  { name: '蔡英文',  party: '民進黨',       postcount:  3, external:  26172, internal: 13314, avgPostImpact: 4438 },
+  { name: '陳佩琪',  party: '民眾黨',       postcount:  7, external:  27480, internal:  5595, avgPostImpact:  799 },
+  { name: '徐巧芯',  party: '國民黨',       postcount:  6, external:  24266, internal: 12210, avgPostImpact: 2035 },
+  { name: '賴瑞隆',  party: '民進黨',       postcount: 18, external:  25751, internal:  4058, avgPostImpact:  225 },
+  { name: '梁文傑',  party: '民進黨',       postcount:  0, external:  26027, internal:     0, avgPostImpact:    0 },
+  { name: '馬英九',  party: '國民黨',       postcount:  0, external:  24002, internal:     0, avgPostImpact:    0 },
+  { name: '羅智強',  party: '國民黨',       postcount: 15, external:  11977, internal: 16803, avgPostImpact: 1120 },
+  { name: '謝龍介',  party: '國民黨',       postcount: 14, external:  10293, internal: 15771, avgPostImpact: 1127 },
+  { name: '王鴻薇',  party: '國民黨',       postcount:  9, external:  17480, internal:  5718, avgPostImpact:  635 },
+  { name: '蘇巧慧',  party: '民進黨',       postcount: 13, external:  17545, internal:  4317, avgPostImpact:  332 },
+  { name: '韓國瑜',  party: '國民黨',       postcount:  0, external:  17581, internal:     0, avgPostImpact:    0 },
+  { name: '傅崐萁',  party: '國民黨',       postcount:  3, external:  17325, internal:  2417, avgPostImpact:  806 },
+  { name: '王惠美',  party: '國民黨',       postcount: 12, external:  16977, internal:  1010, avgPostImpact:   84 },
+  { name: '王婉諭',  party: '時代力量',     postcount: 13, external:   1205, internal: 16247, avgPostImpact: 1250 },
+  { name: '張啓楷',  party: '民眾黨',       postcount:  6, external:  15828, internal:  3645, avgPostImpact:  607 },
+  { name: '范雲',    party: '民進黨',       postcount: 17, external:  14387, internal:  3541, avgPostImpact:  208 },
+  { name: '陳柏惟',  party: '民進黨',       postcount:  8, external:  11905, internal:  8810, avgPostImpact: 1101 },
+  { name: '李明璇',  party: '國民黨',       postcount: 12, external:   2148, internal: 14012, avgPostImpact: 1168 },
 ];
 
 export default function App() {
@@ -661,39 +630,36 @@ export default function App() {
   // 快速載入示範數據
   // ══════════════════════════════════════════════════════
   const loadDemoData = () => {
-    // 直接使用靜態示範數據，不透過 mergeData（避免 alert 和 Supabase 寫入）
-    const intMap = {};
-    DEMO_INTERNAL.forEach(d => { intMap[d.name] = d; });
-    const extMap = {};
-    DEMO_EXTERNAL.forEach(d => { extMap[d.name] = d; });
-    const allNames = new Set([...Object.keys(intMap), ...Object.keys(extMap)]);
-    const merged = [];
-    let id = 1;
-    allNames.forEach(name => {
-      const intItem = intMap[name];
-      const extItem = extMap[name];
-      const info = politicianDB[name];
-      const intVal = intItem?.internal ?? 0;
-      const intPost = intItem?.internalPost ?? 0;
-      const extVal = extItem?.external ?? 0;
-      const externalOnly = !intItem;
-      const avgPostImpact = (!externalOnly && intPost > 0) ? (intVal / intPost) : 0;
-      const momentum = externalOnly ? extVal : Math.sqrt(intVal * intVal + extVal * extVal);
-      merged.push({
-        id: id++, name, internal: intVal, external: extVal,
-        internalPost: intPost, avgPostImpact, externalOnly,
-        party: info?.political_party_label || '無特定政黨屬性',
+    // 直接將 DEMO_DATA 轉為圖表格式（外部_x軸、內部_y軸、圈圈大小直接採用）
+    const merged = DEMO_DATA.map((d, i) => {
+      const info = politicianDB[d.name];
+      const externalOnly = d.postcount === 0 && d.internal === 0;
+      const momentum = externalOnly
+        ? d.external
+        : Math.sqrt(d.internal * d.internal + d.external * d.external);
+      return {
+        id: i + 1,
+        name: d.name,
+        internal: d.internal,
+        external: d.external,
+        internalPost: d.postcount,
+        avgPostImpact: d.avgPostImpact,
+        externalOnly,
+        party: info?.political_party_label || d.party,
         county: info?.county || '',
         bgw_spectrum: info?.bgw_spectrum || '',
         national_affairs: info?.national_affairs === true,
         momentum
-      });
+      };
     });
     merged.sort((a, b) => b.momentum - a.momentum);
-    internalFilesRef.current = DEMO_INTERNAL;
-    externalFilesRef.current = DEMO_EXTERNAL;
-    setInternalFiles(DEMO_INTERNAL);
-    setExternalFiles(DEMO_EXTERNAL);
+    // 同步 ref（保持 internalFiles/externalFiles 計數正確）
+    const intRef = DEMO_DATA.filter(d => d.postcount > 0).map(d => ({ name: d.name, internal: d.internal, internalPost: d.postcount }));
+    const extRef = DEMO_DATA.map(d => ({ name: d.name, external: d.external }));
+    internalFilesRef.current = intRef;
+    externalFilesRef.current = extRef;
+    setInternalFiles(intRef);
+    setExternalFiles(extRef);
     setMergedData(merged);
     setDisplayData(merged);
     setDemoLoaded(true);
@@ -1307,6 +1273,54 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* ── 數據統計 ── */}
+              {displayData.length > 0 && (() => {
+                // 計算象限分隔點（與圖形相同邏輯）
+                const externals = displayData.map(d => d.external);
+                const internals = displayData.filter(d => !d.externalOnly).map(d => d.internal);
+                const minX = axisRange.autoAdjust ? 0 : (parseFloat(axisRange.xMin) || 0);
+                const maxX = axisRange.autoAdjust
+                  ? (Math.max(...externals) || 1) * 1.05
+                  : (parseFloat(axisRange.xMax) || 100000);
+                const minY = axisRange.autoAdjust ? 0 : (parseFloat(axisRange.yMin) || 0);
+                const maxY = axisRange.autoAdjust
+                  ? (Math.max(...(internals.length ? internals : [1])) || 1) * 1.05
+                  : (parseFloat(axisRange.yMax) || 50000);
+                const midX = (minX + maxX) / 2;
+                const midY = (minY + maxY) / 2;
+                const q1 = displayData.filter(d => !d.externalOnly && d.external >= midX && d.internal >= midY).length;
+                const q2 = displayData.filter(d => !d.externalOnly && d.external < midX  && d.internal >= midY).length;
+                const q3 = displayData.filter(d => !d.externalOnly && d.external < midX  && d.internal < midY).length;
+                const q4 = displayData.filter(d => !d.externalOnly && d.external >= midX && d.internal < midY).length;
+                const quadrants = [
+                  { label: '🏠 鐵粉經營', count: q2, bg: 'rgba(78,205,196,0.10)',  border: 'rgba(78,205,196,0.40)',  color: '#3A9A8A' },
+                  { label: '🔥 風暴中心', count: q1, bg: 'rgba(255,107,53,0.10)',  border: 'rgba(255,107,53,0.38)',  color: '#C05A20' },
+                  { label: '😶 沉潛蟄伏', count: q3, bg: 'rgba(123,156,192,0.10)', border: 'rgba(123,156,192,0.38)', color: '#5A6A8A' },
+                  { label: '🎯 被動捲入', count: q4, bg: 'rgba(255,153,153,0.10)', border: 'rgba(255,153,153,0.38)', color: '#B04040' },
+                ];
+                return (
+                  <div className="border-t pt-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h3 className="font-bold text-sm">📊 數據統計</h3>
+                      <span className="text-xs text-gray-400">共
+                        <span className="font-bold text-teal-600 mx-1">{displayData.length}</span>人
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {quadrants.map(q => (
+                        <div key={q.label} className="p-2 rounded"
+                          style={{ backgroundColor: q.bg, border: `1.5px solid ${q.border}` }}>
+                          <div className="text-xs font-bold leading-tight" style={{ color: q.color }}>{q.label}</div>
+                          <div className="text-xl font-bold mt-0.5" style={{ color: q.color }}>{q.count}
+                            <span className="text-xs font-normal ml-1" style={{ color: q.color, opacity: 0.7 }}>人</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── 政治人物列表編輯器 ── */}
               <div className="border-t pt-3">
